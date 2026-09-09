@@ -1,4 +1,9 @@
 import { ConfigService } from '@nestjs/config';
+import {
+  buildLegacyResultsResponse,
+  buildRagRetrieveResponse,
+  sampleRagApiCitation,
+} from '../rag/rag-retrieve.fixtures';
 import { RagRetrieveClient } from '../rag/rag-retrieve.client';
 import { ChatService, getLastUserMessageContent } from './chat.service';
 import { ChatRole } from './dto/chat-message.dto';
@@ -29,32 +34,63 @@ describe('getLastUserMessageContent', () => {
 });
 
 describe('ChatService', () => {
-  const config = {
-    get: (key: string) => {
-      const values: Record<string, string> = {
-        OPENAI_API_KEY: 'test-key',
-        OPENAI_BASE_URL: 'http://llm.local/v1',
-        OPENAI_MODEL: 'test-model',
-      };
-      return values[key];
-    },
-  } as ConfigService;
+  const originalFetch = global.fetch;
 
-  it('returns rag_used true with citations when retrieval succeeds', async () => {
-    const ragClient = {
-      retrieve: jest.fn().mockResolvedValue({
-        ragUsed: true,
-        citations: [{ filename: 'doc.pdf', page: 1, snippet: 'info' }],
-        contextBlock: '[Retrieved context]\n- (doc.pdf p.1) info',
-      }),
-    } as unknown as RagRetrieveClient;
+  afterEach(() => {
+    global.fetch = originalFetch;
+    jest.restoreAllMocks();
+  });
 
-    const service = new ChatService(config, ragClient);
+  function createConfig(
+    extra: Record<string, string | undefined> = {},
+  ): ConfigService {
+    return {
+      get: (key: string) => {
+        const values: Record<string, string | undefined> = {
+          OPENAI_API_KEY: 'test-key',
+          OPENAI_BASE_URL: 'http://llm.local/v1',
+          OPENAI_MODEL: 'test-model',
+          RAG_BASE: 'http://rag.local',
+          RAG_GROUP_ID: 'default-group',
+          RAG_TOP_K: '5',
+          ...extra,
+        };
+        return values[key];
+      },
+    } as ConfigService;
+  }
+
+  function createService(config: ConfigService = createConfig()) {
+    return new ChatService(config, new RagRetrieveClient(config));
+  }
+
+  it('returns rag_used true with citations when RAG API returns citations', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () =>
+        buildRagRetrieveResponse(
+          [
+            {
+              ...sampleRagApiCitation,
+              filename: 'doc.pdf',
+              page: 1,
+              snippet: 'info',
+            },
+          ],
+          { query: 'What is NestJS?' },
+        ),
+    });
+
+    const service = createService();
     const response = await service.chat({
       messages: [{ role: ChatRole.User, content: 'What is NestJS?' }],
     });
 
-    expect(ragClient.retrieve).toHaveBeenCalledWith('What is NestJS?', undefined);
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://rag.local/v1/retrieve',
+      expect.objectContaining({ method: 'POST' }),
+    );
     expect(response).toEqual({
       message: { role: 'assistant', content: 'Assistant reply' },
       rag_used: true,
@@ -62,26 +98,45 @@ describe('ChatService', () => {
     });
   });
 
-  it('returns rag_used false without citations when retrieval is skipped', async () => {
-    const ragClient = {
-      retrieve: jest.fn().mockResolvedValue({
-        ragUsed: false,
-        citations: [],
-        contextBlock: null,
-      }),
-    } as unknown as RagRetrieveClient;
+  it('returns rag_used false without citations when RAG API returns empty citations', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
 
-    const service = new ChatService(config, ragClient);
+    const service = createService();
     const response = await service.chat({
       messages: [{ role: ChatRole.User, content: 'Hello' }],
       group_id: 'team-a',
     });
 
-    expect(ragClient.retrieve).toHaveBeenCalledWith('Hello', 'team-a');
+    expect(JSON.parse(
+      (global.fetch as jest.Mock).mock.calls[0][1].body as string,
+    ).group_id).toBe('team-a');
     expect(response).toEqual({
       message: { role: 'assistant', content: 'Assistant reply' },
       rag_used: false,
     });
+    expect(response.citations).toBeUndefined();
+  });
+
+  it('returns rag_used false when RAG API responds with legacy results field only', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () =>
+        buildLegacyResultsResponse([
+          { filename: 'doc.pdf', page: 1, snippet: 'info' },
+        ]),
+    });
+
+    const service = createService();
+    const response = await service.chat({
+      messages: [{ role: ChatRole.User, content: 'What is NestJS?' }],
+    });
+
+    expect(response.rag_used).toBe(false);
     expect(response.citations).toBeUndefined();
   });
 });

@@ -1,5 +1,10 @@
 import { ConfigService } from '@nestjs/config';
 import {
+  buildLegacyResultsResponse,
+  buildRagRetrieveResponse,
+  sampleRagApiCitation,
+} from './rag-retrieve.fixtures';
+import {
   formatContextBlock,
   RagRetrieveClient,
 } from './rag-retrieve.client';
@@ -31,23 +36,10 @@ describe('RagRetrieveClient', () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({
-        query: 'how to start',
-        mode: 'hybrid',
-        backend: 'pgvector',
-        citations: [
-          {
-            chunk_id: 'chunk-1',
-            doc_id: 'doc-1',
-            filename: 'guide.pdf',
-            page: 2,
-            score: 0.91,
-            snippet: 'NestJS basics',
-            rank: 1,
-          },
-        ],
-        latency_ms: { total: 42.5 },
-      }),
+      json: async () =>
+        buildRagRetrieveResponse([sampleRagApiCitation], {
+          query: 'how to start',
+        }),
     });
     global.fetch = fetchMock;
 
@@ -84,11 +76,29 @@ describe('RagRetrieveClient', () => {
     );
   });
 
+  it('does not use RAG when response only has legacy results field', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () =>
+        buildLegacyResultsResponse([
+          { filename: 'doc.pdf', page: 1, snippet: 'legacy shape' },
+        ]),
+    });
+
+    const client = createClient({ RAG_BASE: 'http://rag.local' });
+    const result = await client.retrieve('query');
+
+    expect(result.ragUsed).toBe(false);
+    expect(result.citations).toEqual([]);
+    expect(result.contextBlock).toBeNull();
+  });
+
   it('falls back to env group_id when request group_id is absent', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ citations: [] }),
+      json: async () => buildRagRetrieveResponse([]),
     });
     global.fetch = fetchMock;
 
@@ -139,13 +149,7 @@ describe('RagRetrieveClient', () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({
-        query: 'query',
-        mode: 'hybrid',
-        backend: 'pgvector',
-        citations: [],
-        latency_ms: { total: 10 },
-      }),
+      json: async () => buildRagRetrieveResponse([]),
     });
 
     const client = createClient({ RAG_BASE: 'http://rag.local' });
@@ -157,8 +161,8 @@ describe('RagRetrieveClient', () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({
-        citations: [
+      json: async () =>
+        buildRagRetrieveResponse([
           {
             chunk_id: 'chunk-2',
             doc_id: 'doc-2',
@@ -168,8 +172,7 @@ describe('RagRetrieveClient', () => {
             snippet: 'Some note',
             rank: 1,
           },
-        ],
-      }),
+        ]),
     });
 
     const client = createClient({ RAG_BASE: 'http://rag.local' });
