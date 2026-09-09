@@ -10,14 +10,22 @@ export interface RagRetrieveResult {
   contextBlock: string | null;
 }
 
-export interface RagRetrieveHit {
+/** Citation item from santarosalia/rag POST /v1/retrieve (RetrieveResponse.citations). */
+export interface RagRetrieveCitation {
+  chunk_id?: string;
+  doc_id?: string;
   filename?: string;
-  page?: number;
-  snippet?: string;
+  page?: number | null;
+  score?: number;
+  snippet?: string | null;
+  rank?: number;
+  content?: string | null;
 }
 
 export interface RagRetrieveResponse {
-  results?: RagRetrieveHit[];
-  hits?: RagRetrieveHit[];
-  items?: RagRetrieveHit[];
+  query?: string;
+  mode?: string;
+  backend?: string;
+  citations?: RagRetrieveCitation[];
+  latency_ms?: Record<string, number>;
 }

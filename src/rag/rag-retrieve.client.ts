@@ -55,9 +55,8 @@ export class RagRetrieveClient {
       }
 
       const body = (await response.json()) as RagRetrieveResponse;
-      const hits = body.results ?? body.hits ?? body.items ?? [];
-      const citations = hits
-        .map((hit) => toCitation(hit))
+      const citations = (body.citations ?? [])
+        .map((item) => toCitation(item))
         .filter((c): c is RagCitation => c !== null);
 
       if (citations.length === 0) {
@@ -90,8 +89,8 @@ function emptyResult(): RagRetrieveResult {
 
 function toCitation(hit: {
   filename?: string;
-  page?: number;
-  snippet?: string;
+  page?: number | null;
+  snippet?: string | null;
 }): RagCitation | null {
   const filename = hit.filename?.trim();
   const snippet = hit.snippet?.trim();

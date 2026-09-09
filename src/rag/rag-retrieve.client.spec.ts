@@ -32,9 +32,21 @@ describe('RagRetrieveClient', () => {
       ok: true,
       status: 200,
       json: async () => ({
-        results: [
-          { filename: 'guide.pdf', page: 2, snippet: 'NestJS basics' },
+        query: 'how to start',
+        mode: 'hybrid',
+        backend: 'pgvector',
+        citations: [
+          {
+            chunk_id: 'chunk-1',
+            doc_id: 'doc-1',
+            filename: 'guide.pdf',
+            page: 2,
+            score: 0.91,
+            snippet: 'NestJS basics',
+            rank: 1,
+          },
         ],
+        latency_ms: { total: 42.5 },
       }),
     });
     global.fetch = fetchMock;
@@ -76,7 +88,7 @@ describe('RagRetrieveClient', () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ results: [] }),
+      json: async () => ({ citations: [] }),
     });
     global.fetch = fetchMock;
 
@@ -123,16 +135,49 @@ describe('RagRetrieveClient', () => {
     expect(result.ragUsed).toBe(false);
   });
 
-  it('returns empty result when hits are empty', async () => {
+  it('returns empty result when citations are empty', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ results: [] }),
+      json: async () => ({
+        query: 'query',
+        mode: 'hybrid',
+        backend: 'pgvector',
+        citations: [],
+        latency_ms: { total: 10 },
+      }),
     });
 
     const client = createClient({ RAG_BASE: 'http://rag.local' });
     const result = await client.retrieve('query');
     expect(result.ragUsed).toBe(false);
+  });
+
+  it('defaults page to 1 when rag citation page is null', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        citations: [
+          {
+            chunk_id: 'chunk-2',
+            doc_id: 'doc-2',
+            filename: 'notes.md',
+            page: null,
+            score: 0.8,
+            snippet: 'Some note',
+            rank: 1,
+          },
+        ],
+      }),
+    });
+
+    const client = createClient({ RAG_BASE: 'http://rag.local' });
+    const result = await client.retrieve('query');
+    expect(result.ragUsed).toBe(true);
+    expect(result.citations).toEqual([
+      { filename: 'notes.md', page: 1, snippet: 'Some note' },
+    ]);
   });
 });
 
