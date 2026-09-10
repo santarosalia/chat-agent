@@ -4,7 +4,6 @@ import {
   FormEvent,
   KeyboardEvent,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -36,11 +35,6 @@ export default function HomePage() {
   const abortRef = useRef<AbortController | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  const apiBase = useMemo(
-    () => process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3000',
-    [],
-  );
 
   useEffect(() => {
     const thread = threadRef.current;
@@ -209,7 +203,6 @@ export default function HomePage() {
       <header className="topbar">
         <div className="brand">
           <h1>chat-agent</h1>
-          <p>로컬 {apiBase} · 히스토리는 이 탭에만 남습니다</p>
         </div>
         <div className="topbar-actions">
           <button

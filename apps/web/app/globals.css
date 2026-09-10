@@ -63,7 +63,7 @@ button:disabled {
 
 .topbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
   padding: 0.85rem 1.1rem 0.7rem;
@@ -71,23 +71,11 @@ button:disabled {
   flex-shrink: 0;
 }
 
-.brand {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
 .brand h1 {
   margin: 0;
   font-size: 1.05rem;
   font-weight: 600;
   letter-spacing: -0.02em;
-}
-
-.brand p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.75rem;
 }
 
 .topbar-actions {
