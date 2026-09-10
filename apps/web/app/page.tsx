@@ -1,186 +1,386 @@
 'use client';
 
-import { FormEvent, useMemo, useState } from 'react';
 import {
-  ChatMessage,
-  Citation,
-  postChat,
-  postChatStream,
-} from '@/lib/chat-api';
+  FormEvent,
+  KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { postChat, postChatStream } from '@/lib/chat-api';
+import {
+  buildChatRequest,
+  ThreadMessage,
+} from '@/lib/chat-thread';
+import { MarkdownBody } from '@/lib/markdown-body';
+
+const PROMPTS = [
+  '직원 핸드북에는 무엇이 있나요?',
+  '연차는 며칠인가요?',
+  '검색 없이 일반적인 답변을 해줘',
+];
+
+function createId(): string {
+  return crypto.randomUUID();
+}
 
 export default function HomePage() {
   const [userInput, setUserInput] = useState('');
   const [groupId, setGroupId] = useState('');
   const [topK, setTopK] = useState('');
   const [useStream, setUseStream] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [assistantText, setAssistantText] = useState('');
-  const [ragUsed, setRagUsed] = useState<boolean | null>(null);
-  const [citations, setCitations] = useState<Citation[]>([]);
+  const [messages, setMessages] = useState<ThreadMessage[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
+  const threadRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const apiBase = useMemo(
     () => process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3000',
     [],
   );
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setAssistantText('');
-    setRagUsed(null);
-    setCitations([]);
+  useEffect(() => {
+    const thread = threadRef.current;
+    if (!thread) {
+      return;
+    }
+    thread.scrollTop = thread.scrollHeight;
+  }, [messages]);
 
-    const trimmed = userInput.trim();
-    if (!trimmed) {
-      setError('메시지를 입력하세요.');
+  function patchMessage(id: string, patch: Partial<ThreadMessage>) {
+    setMessages((prev) =>
+      prev.map((message) =>
+        message.id === id ? { ...message, ...patch } : message,
+      ),
+    );
+  }
+
+  function resizeTextarea() {
+    const el = textareaRef.current;
+    if (!el) {
+      return;
+    }
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 136)}px`;
+  }
+
+  function resetConversation() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setMessages([]);
+    setLoading(false);
+    setUserInput('');
+    requestAnimationFrame(resizeTextarea);
+  }
+
+  async function sendMessage(raw: string) {
+    const trimmed = raw.trim();
+    if (!trimmed || loading) {
       return;
     }
 
-    const messages: ChatMessage[] = [{ role: 'user', content: trimmed }];
-    const body: {
-      messages: ChatMessage[];
-      group_id?: string;
-      top_k?: number;
-    } = { messages };
+    const userMessage: ThreadMessage = {
+      id: createId(),
+      role: 'user',
+      content: trimmed,
+    };
+    const assistantId = createId();
+    const history = [...messages, userMessage];
+    const body = buildChatRequest(history, { groupId, topK });
 
-    if (groupId.trim()) {
-      body.group_id = groupId.trim();
-    }
-    const parsedTopK = Number(topK);
-    if (topK.trim() && Number.isInteger(parsedTopK) && parsedTopK >= 1) {
-      body.top_k = parsedTopK;
-    }
-
+    setUserInput('');
+    setMessages([
+      ...history,
+      { id: assistantId, role: 'assistant', content: '', streaming: true },
+    ]);
+    requestAnimationFrame(resizeTextarea);
     setLoading(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       if (useStream) {
-        await postChatStream(body, {
-          onMeta: (meta) => {
-            setRagUsed(meta.rag_used);
-            setCitations(meta.citations ?? []);
+        await postChatStream(
+          body,
+          {
+            onMeta: (meta) => {
+              patchMessage(assistantId, {
+                ragUsed: meta.rag_used,
+                citations: meta.citations ?? [],
+              });
+            },
+            onDelta: (content) => {
+              setMessages((prev) =>
+                prev.map((message) =>
+                  message.id === assistantId
+                    ? { ...message, content: message.content + content }
+                    : message,
+                ),
+              );
+            },
+            onDone: (data) => {
+              patchMessage(assistantId, {
+                streaming: false,
+                ...(data.message?.content
+                  ? { content: data.message.content }
+                  : {}),
+              });
+            },
+            onError: (message) => {
+              patchMessage(assistantId, {
+                streaming: false,
+                error: message,
+              });
+            },
           },
-          onDelta: (content) => {
-            setAssistantText((prev) => prev + content);
-          },
-          onDone: (data) => {
-            if (data.message?.content) {
-              setAssistantText(data.message.content);
-            }
-          },
-          onError: (message) => {
-            setError(message);
-          },
-        });
+          controller.signal,
+        );
       } else {
-        const response = await postChat(body);
-        setAssistantText(response.message.content);
-        setRagUsed(response.rag_used);
-        setCitations(response.citations ?? []);
+        const response = await postChat(body, controller.signal);
+        patchMessage(assistantId, {
+          streaming: false,
+          content: response.message.content,
+          ragUsed: response.rag_used,
+          citations: response.citations ?? [],
+        });
       }
     } catch (submitError) {
-      const message =
-        submitError instanceof Error
-          ? submitError.message
-          : '요청에 실패했습니다.';
-      setError(message);
+      if (controller.signal.aborted) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (
+            last?.id === assistantId &&
+            last.role === 'assistant' &&
+            last.content.length === 0
+          ) {
+            return prev.slice(0, -1);
+          }
+          return prev.map((message) =>
+            message.id === assistantId
+              ? { ...message, streaming: false }
+              : message,
+          );
+        });
+      } else {
+        const message =
+          submitError instanceof Error
+            ? submitError.message
+            : '요청에 실패했습니다.';
+        patchMessage(assistantId, {
+          streaming: false,
+          error: message,
+        });
+      }
     } finally {
+      abortRef.current = null;
       setLoading(false);
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantId && message.streaming
+            ? { ...message, streaming: false }
+            : message,
+        ),
+      );
     }
   }
 
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void sendMessage(userInput);
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void sendMessage(userInput);
+    }
+  }
+
+  function stopGenerating() {
+    abortRef.current?.abort();
+  }
+
   return (
-    <main>
-      <h1>chat-agent test UI</h1>
-      <p className="subtitle">
-        로컬 API({apiBase})용 테스트 전용 UI — 로그인·히스토리 저장 없음
-      </p>
-
-      <form className="panel" onSubmit={handleSubmit}>
-        <label htmlFor="message">User message</label>
-        <textarea
-          id="message"
-          value={userInput}
-          onChange={(event) => setUserInput(event.target.value)}
-          placeholder="질문을 입력하세요"
-        />
-
-        <div className="row" style={{ marginTop: '1rem' }}>
-          <div>
-            <label htmlFor="group-id">group_id (optional)</label>
-            <input
-              id="group-id"
-              type="text"
-              value={groupId}
-              onChange={(event) => setGroupId(event.target.value)}
-              placeholder="hr-docs"
-            />
-          </div>
-          <div>
-            <label htmlFor="top-k">top_k (optional)</label>
-            <input
-              id="top-k"
-              type="number"
-              min={1}
-              value={topK}
-              onChange={(event) => setTopK(event.target.value)}
-              placeholder="5"
-            />
-          </div>
+    <div className="shell">
+      <header className="topbar">
+        <div className="brand">
+          <h1>chat-agent</h1>
+          <p>로컬 {apiBase} · 히스토리는 이 탭에만 남습니다</p>
         </div>
-
-        <div className="controls">
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={useStream}
-              onChange={(event) => setUseStream(event.target.checked)}
-            />
-            POST /chat/stream (fetch + SSE parser)
-          </label>
-          <button type="submit" disabled={loading}>
-            {loading ? 'Sending…' : useStream ? 'Stream chat' : 'Send chat'}
+        <div className="topbar-actions">
+          <button
+            type="button"
+            className="ghost"
+            aria-pressed={showSettings}
+            onClick={() => setShowSettings((open) => !open)}
+          >
+            검색 범위
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={resetConversation}
+            disabled={messages.length === 0 && !loading}
+          >
+            새 대화
           </button>
         </div>
-      </form>
+      </header>
 
-      <section className="panel">
-        <div className="meta" style={{ marginBottom: '0.75rem' }}>
-          rag_used:{' '}
-          {ragUsed === null ? (
-            '—'
-          ) : (
-            <span className={`badge ${ragUsed ? 'on' : 'off'}`}>
-              {ragUsed ? 'true' : 'false'}
-            </span>
-          )}
-        </div>
-
-        <label>Assistant response</label>
-        <div className="assistant">
-          {assistantText || (loading ? '…' : '응답이 여기에 표시됩니다.')}
-        </div>
-
-        {citations.length > 0 && (
-          <>
-            <h2 style={{ fontSize: '1rem', margin: '1rem 0 0.5rem' }}>
-              Citations
-            </h2>
-            <ol className="citations">
-              {citations.map((citation, index) => (
-                <li key={`${citation.filename}-${citation.page}-${index}`}>
-                  <strong>
-                    {citation.filename} p.{citation.page}
-                  </strong>
-                  <div>{citation.snippet}</div>
-                </li>
+      <div className="thread" ref={threadRef} role="log">
+        {messages.length === 0 ? (
+          <div className="empty">
+            <h2>문서에 물어보세요</h2>
+            <p>
+              질문은 대화로 이어집니다. 답변 아래 카드가 검색된 스니펫입니다.
+            </p>
+            <div className="prompts">
+              {PROMPTS.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => {
+                    setUserInput(prompt);
+                    textareaRef.current?.focus();
+                    requestAnimationFrame(resizeTextarea);
+                  }}
+                >
+                  {prompt}
+                </button>
               ))}
-            </ol>
-          </>
+            </div>
+          </div>
+        ) : (
+          messages.map((message) =>
+            message.role === 'user' ? (
+              <div className="turn user" key={message.id}>
+                <div className="bubble">{message.content}</div>
+              </div>
+            ) : (
+              <div className="turn assistant" key={message.id}>
+                <div className="assistant-stack">
+                  {message.ragUsed !== undefined && (
+                    <div className="meta-row">
+                      <span
+                        className={`badge ${message.ragUsed ? 'on' : 'off'}`}
+                      >
+                        {message.ragUsed ? 'RAG' : 'RAG 없음'}
+                      </span>
+                    </div>
+                  )}
+                  <div
+                    className={`bubble${message.error ? ' error-text' : ''}`}
+                  >
+                    {message.error ? (
+                      message.error
+                    ) : message.content ? (
+                      <MarkdownBody>{message.content}</MarkdownBody>
+                    ) : null}
+                    {message.streaming && <span className="caret" />}
+                  </div>
+                  {message.citations && message.citations.length > 0 && (
+                    <details className="citations-block">
+                      <summary>
+                        <span className="cite-count">
+                          출처 {message.citations.length}
+                        </span>
+                        <span className="cite-names">
+                          {message.citations
+                            .map(
+                              (citation) =>
+                                `${citation.filename} p.${citation.page}`,
+                            )
+                            .join(' · ')}
+                        </span>
+                      </summary>
+                      <ol className="citations">
+                        {message.citations.map((citation, index) => (
+                          <li
+                            key={`${citation.filename}-${citation.page}-${index}`}
+                          >
+                            <div className="cite-tab">
+                              {citation.filename} · p.{citation.page}
+                            </div>
+                            <div className="cite-snippet">
+                              {citation.snippet}
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  )}
+                </div>
+              </div>
+            ),
+          )
+        )}
+      </div>
+
+      <form className="dock" onSubmit={handleSubmit}>
+        {showSettings && (
+          <div className="settings">
+            <div className="field">
+              <label htmlFor="group-id">group_id</label>
+              <input
+                id="group-id"
+                type="text"
+                value={groupId}
+                onChange={(event) => setGroupId(event.target.value)}
+                placeholder="전체 코퍼스"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="top-k">top_k</label>
+              <input
+                id="top-k"
+                type="number"
+                min={1}
+                value={topK}
+                onChange={(event) => setTopK(event.target.value)}
+                placeholder="5"
+              />
+            </div>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={useStream}
+                onChange={(event) => setUseStream(event.target.checked)}
+              />
+              스트림
+            </label>
+          </div>
         )}
 
-        {error && <p className="error">{error}</p>}
-      </section>
-    </main>
+        <div className="composer">
+          <textarea
+            ref={textareaRef}
+            id="message"
+            value={userInput}
+            onChange={(event) => {
+              setUserInput(event.target.value);
+              resizeTextarea();
+            }}
+            onKeyDown={handleComposerKeyDown}
+            placeholder="메시지 입력"
+            rows={1}
+            aria-label="메시지"
+          />
+          {loading ? (
+            <button type="button" className="send" onClick={stopGenerating}>
+              중지
+            </button>
+          ) : (
+            <button type="submit" className="send" disabled={!userInput.trim()}>
+              보내기
+            </button>
+          )}
+        </div>
+        <p className="hint">Enter 보내기 · Shift+Enter 줄바꿈</p>
+      </form>
+    </div>
   );
 }

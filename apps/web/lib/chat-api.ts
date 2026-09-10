@@ -45,11 +45,15 @@ export interface ChatRequestBody {
   top_k?: number;
 }
 
-export async function postChat(body: ChatRequestBody): Promise<ChatResponse> {
+export async function postChat(
+  body: ChatRequestBody,
+  signal?: AbortSignal,
+): Promise<ChatResponse> {
   const response = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!response.ok) {

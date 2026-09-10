@@ -62,8 +62,8 @@ describe('RagRetrieveClient', () => {
       group_id: 'req-group',
       top_k: 3,
       rerank: true,
-      snippet: true,
-      content: false,
+      snippet: false,
+      content: true,
     });
     expect(result.ragUsed).toBe(true);
     expect(result.citations).toEqual([
@@ -180,6 +180,38 @@ describe('RagRetrieveClient', () => {
     const client = createClient({ RAG_BASE: 'http://rag.local' });
     const result = await client.retrieve('query', 'group-a');
     expect(result.ragUsed).toBe(false);
+  });
+
+  it('uses content as citation text when snippet is absent', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () =>
+        buildRagRetrieveResponse([
+          {
+            chunk_id: 'chunk-3',
+            doc_id: 'doc-3',
+            filename: 'guide.pdf',
+            page: 4,
+            score: 0.9,
+            snippet: null,
+            content: 'Full chunk about leave policy',
+            rank: 1,
+          },
+        ]),
+    });
+
+    const client = createClient({ RAG_BASE: 'http://rag.local' });
+    const result = await client.retrieve('query', 'group-a');
+
+    expect(result.ragUsed).toBe(true);
+    expect(result.citations).toEqual([
+      {
+        filename: 'guide.pdf',
+        page: 4,
+        snippet: 'Full chunk about leave policy',
+      },
+    ]);
   });
 
   it('defaults page to 1 when rag citation page is null', async () => {

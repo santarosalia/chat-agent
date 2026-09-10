@@ -1,10 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import {
   RagCitation,
   RagRetrieveResponse,
   RagRetrieveResult,
-} from './rag.types';
+} from "./rag.types";
 
 const RETRIEVE_TIMEOUT_MS = 5000;
 
@@ -17,11 +17,11 @@ export class RagRetrieveClient {
   async retrieve(
     query: string,
     groupId?: string,
-    topK = 5,
+    topK = 5
   ): Promise<RagRetrieveResult> {
-    const ragBase = this.config.get<string>('RAG_BASE');
+    const ragBase = this.config.get<string>("RAG_BASE");
     if (!ragBase) {
-      this.logger.warn('RAG_BASE is not configured; skipping retrieval');
+      this.logger.warn("RAG_BASE is not configured; skipping retrieval");
       return emptyResult();
     }
 
@@ -29,12 +29,15 @@ export class RagRetrieveClient {
     const timeout = setTimeout(() => controller.abort(), RETRIEVE_TIMEOUT_MS);
 
     try {
-      const response = await fetch(`${ragBase.replace(/\/$/, '')}/v1/retrieve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildRetrieveBody(query, groupId, topK)),
-        signal: controller.signal,
-      });
+      const response = await fetch(
+        `${ragBase.replace(/\/$/, "")}/v1/retrieve`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildRetrieveBody(query, groupId, topK)),
+          signal: controller.signal,
+        }
+      );
 
       if (response.status >= 500) {
         this.logger.warn(`RAG retrieve returned ${response.status}; skipping`);
@@ -68,21 +71,20 @@ export class RagRetrieveClient {
       clearTimeout(timeout);
     }
   }
-
 }
 
 function buildRetrieveBody(
   query: string,
   groupId: string | undefined,
-  topK: number,
+  topK: number
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     query,
-    mode: 'hybrid',
+    mode: "hybrid",
     top_k: topK,
     rerank: true,
-    snippet: true,
-    content: false,
+    snippet: false,
+    content: true,
   };
   if (groupId) {
     body.group_id = groupId;
@@ -98,19 +100,20 @@ function toCitation(hit: {
   filename?: string;
   page?: number | null;
   snippet?: string | null;
+  content?: string | null;
 }): RagCitation | null {
   const filename = hit.filename?.trim();
-  const snippet = hit.snippet?.trim();
+  const snippet = hit.content?.trim() || hit.snippet?.trim();
   if (!filename || !snippet) {
     return null;
   }
-  const page = typeof hit.page === 'number' && hit.page > 0 ? hit.page : 1;
+  const page = typeof hit.page === "number" && hit.page > 0 ? hit.page : 1;
   return { filename, page, snippet };
 }
 
 export function formatContextBlock(citations: RagCitation[]): string {
   const lines = citations.map(
-    (c) => `- (${c.filename} p.${c.page}) ${c.snippet}`,
+    (c) => `- (${c.filename} p.${c.page}) ${c.snippet}`
   );
-  return `[Retrieved context]\n${lines.join('\n')}`;
+  return `[Retrieved context]\n${lines.join("\n")}`;
 }
