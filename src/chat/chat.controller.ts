@@ -1,5 +1,6 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBody,
   ApiExtraModels,
   ApiOkResponse,
@@ -40,6 +41,17 @@ export class ChatController {
           ],
           group_id: 'hr-docs',
         },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Request validation failed (e.g. missing group_id, empty messages, invalid top_k)',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: ['group_id must be longer than or equal to 1 characters'],
+        error: 'Bad Request',
       },
     },
   })

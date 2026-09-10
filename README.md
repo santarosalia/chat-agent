@@ -7,7 +7,7 @@ RAG-backed chat agent built with **NestJS**, **LangChain**, and **LangGraph**. E
 - `POST /chat` — chat with optional RAG retrieval and citations
 - `GET /health` — liveness check
 - OpenAI-compatible LLM via environment variables
-- Graceful RAG fallback (timeout, 5xx, empty results → answer without RAG)
+- Graceful RAG fallback (timeout, 4xx/5xx, empty results → answer without RAG)
 - Unit tests for retrieve client, context injection, and chat service
 
 ## Quick start
@@ -116,7 +116,7 @@ POST {RAG_BASE}/v1/retrieve
 ```
 
 - Timeout: **5 seconds**, no retries
-- On empty results, timeout, or 5xx: answers without RAG (`rag_used: false`)
+- On empty results, timeout, or RAG 4xx/5xx: answers without RAG (`rag_used: false`)
 
 When retrieval succeeds, context is injected **before the first system message** (or prepended if none exists):
 

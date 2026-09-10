@@ -9,7 +9,7 @@ RAG retrieval is optional enrichment. The RAG service may be slow, unavailable, 
 
 ## Decision
 
-RAG retrieval uses a **5 second timeout** with **no retries**. On **empty citations**, **timeout**, or **5xx** responses, chat-agent **skips RAG** and answers with its own LLM only.
+RAG retrieval uses a **5 second timeout** with **no retries**. On **empty citations**, **timeout**, or **non-2xx RAG responses (4xx and 5xx)**, chat-agent **skips RAG** and answers with its own LLM only.
 
 The response sets **`rag_used: false`** and **omits `citations`**.
 
