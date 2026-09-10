@@ -1,4 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  GoneException,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatHistoryService } from '../chat-history/chat-history.service';
@@ -30,6 +35,7 @@ export interface PreparedChatInput {
 
 @Injectable()
 export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
   private readonly model: ChatOpenAI;
   private readonly graph: ReturnType<typeof createChatGraph>;
 
@@ -49,13 +55,13 @@ export class ChatService {
   }
 
   async chat(request: ChatRequestDto): Promise<ChatResponseDto> {
-    await this.ensureHistoryAllowed(request);
+    const historyEnabled = await this.ensureHistoryAllowed(request);
     const prepared = await this.prepareChatInput(request);
     const result = await this.graph.invoke({
       messages: toLangChainMessages(prepared.truncatedMessages),
     });
     const response = this.buildResponse(prepared.retrieval, result.response ?? '');
-    await this.persistTurnIfRequested(request, response);
+    await this.persistTurnIfRequested(request, response, historyEnabled);
     return response;
   }
 
@@ -64,8 +70,9 @@ export class ChatService {
     write: (chunk: string) => void,
     signal?: AbortSignal,
   ): Promise<void> {
+    let historyEnabled = false;
     try {
-      await this.ensureHistoryAllowed(request);
+      historyEnabled = await this.ensureHistoryAllowed(request);
       const prepared = await this.prepareChatInput(request);
       if (signal?.aborted) {
         return;
@@ -90,13 +97,17 @@ export class ChatService {
         }),
       );
 
-      await this.persistTurnIfRequested(request, {
-        message: { role: 'assistant', content: fullContent },
-        rag_used: prepared.retrieval.ragUsed,
-        citations: prepared.retrieval.ragUsed
-          ? prepared.retrieval.citations
-          : undefined,
-      });
+      await this.persistTurnIfRequested(
+        request,
+        {
+          message: { role: 'assistant', content: fullContent },
+          rag_used: prepared.retrieval.ragUsed,
+          citations: prepared.retrieval.ragUsed
+            ? prepared.retrieval.citations
+            : undefined,
+        },
+        historyEnabled,
+      );
     } catch (error) {
       if (signal?.aborted || isAbortError(error)) {
         return;
@@ -200,35 +211,58 @@ export class ChatService {
     return fullContent;
   }
 
-  async ensureHistoryAllowed(request: ChatRequestDto): Promise<void> {
+  async ensureHistoryAllowed(request: ChatRequestDto): Promise<boolean> {
     if (!request.session_id) {
-      return;
+      return false;
     }
-    await this.chatHistory.assertCanAppend(
-      request.session_id,
-      request.user_id,
-    );
+    try {
+      await this.chatHistory.assertCanAppend(
+        request.session_id,
+        request.user_id,
+      );
+      return true;
+    } catch (error) {
+      if (
+        error instanceof GoneException ||
+        error instanceof ConflictException
+      ) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Chat history pre-check failed; skipping persistence: ${message}`,
+      );
+      return false;
+    }
   }
 
   private async persistTurnIfRequested(
     request: ChatRequestDto,
     response: ChatResponseDto,
+    historyEnabled: boolean,
   ): Promise<void> {
-    if (!request.session_id) {
+    if (!historyEnabled || !request.session_id) {
       return;
     }
     const userContent = getLastUserMessageContentForHistory(request.messages);
     if (!userContent) {
       return;
     }
-    await this.chatHistory.appendTurn({
-      sessionId: request.session_id,
-      userId: request.user_id,
-      userContent,
-      assistantContent: response.message.content,
-      ragUsed: response.rag_used,
-      citations: response.citations,
-    });
+    try {
+      await this.chatHistory.appendTurn({
+        sessionId: request.session_id,
+        userId: request.user_id,
+        userContent,
+        assistantContent: response.message.content,
+        ragUsed: response.rag_used,
+        citations: response.citations,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Chat history append failed; chat response unchanged: ${message}`,
+      );
+    }
   }
 }
 

@@ -1,4 +1,4 @@
-import { GoneException } from '@nestjs/common';
+import { ConflictException, GoneException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatHistoryService } from '../chat-history/chat-history.service';
 import {
@@ -199,6 +199,123 @@ describe('ChatService chat history integration', () => {
     await streamPromise;
 
     expect(chatHistory.appendTurn).not.toHaveBeenCalled();
+  });
+
+  it('returns chat response when appendTurn fails with DB error', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    chatHistory = {
+      assertCanAppend: jest.fn().mockResolvedValue(undefined),
+      appendTurn: jest.fn().mockRejectedValue(new Error('connection refused')),
+    };
+    const service = new ChatService(
+      createConfig(),
+      new RagRetrieveClient(createConfig()),
+      chatHistory as unknown as ChatHistoryService,
+    );
+
+    const response = await service.chat({
+      session_id: sessionId,
+      messages: [{ role: ChatRole.User, content: 'Hello' }],
+    });
+
+    expect(response.message.content).toBe('Assistant reply');
+    expect(chatHistory.appendTurn).toHaveBeenCalled();
+  });
+
+  it('does not emit error event when persist fails after stream done', async () => {
+    async function* tokenStream() {
+      yield { content: 'Hello' };
+    }
+    mockStream.mockResolvedValue(tokenStream());
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    chatHistory = {
+      assertCanAppend: jest.fn().mockResolvedValue(undefined),
+      appendTurn: jest.fn().mockRejectedValue(new Error('insert failed')),
+    };
+    const service = new ChatService(
+      createConfig(),
+      new RagRetrieveClient(createConfig()),
+      chatHistory as unknown as ChatHistoryService,
+    );
+
+    const chunks: string[] = [];
+    await service.streamChat(
+      {
+        session_id: sessionId,
+        messages: [{ role: ChatRole.User, content: 'Hi' }],
+      },
+      (chunk) => chunks.push(chunk),
+    );
+
+    const joined = chunks.join('');
+    expect(joined).toContain('event: done');
+    expect(joined).not.toContain('event: error');
+  });
+
+  it('continues chat when ensureHistoryAllowed hits non-client DB error', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    chatHistory = {
+      assertCanAppend: jest
+        .fn()
+        .mockRejectedValue(new Error('database unavailable')),
+      appendTurn: jest.fn(),
+    };
+    const service = new ChatService(
+      createConfig(),
+      new RagRetrieveClient(createConfig()),
+      chatHistory as unknown as ChatHistoryService,
+    );
+
+    const response = await service.chat({
+      session_id: sessionId,
+      messages: [{ role: ChatRole.User, content: 'Hello' }],
+    });
+
+    expect(response.message.content).toBe('Assistant reply');
+    expect(global.fetch).toHaveBeenCalled();
+    expect(chatHistory.appendTurn).not.toHaveBeenCalled();
+  });
+
+  it('still propagates 409 from ensureHistoryAllowed', async () => {
+    chatHistory = {
+      assertCanAppend: jest
+        .fn()
+        .mockRejectedValue(
+          new ConflictException('user_id does not match frozen session owner'),
+        ),
+      appendTurn: jest.fn(),
+    };
+    const service = new ChatService(
+      createConfig(),
+      new RagRetrieveClient(createConfig()),
+      chatHistory as unknown as ChatHistoryService,
+    );
+
+    global.fetch = jest.fn();
+
+    await expect(
+      service.chat({
+        session_id: sessionId,
+        messages: [{ role: ChatRole.User, content: 'Hello' }],
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it('skips append on stream error', async () => {
