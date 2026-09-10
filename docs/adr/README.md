@@ -8,3 +8,4 @@ chat-agent v1 설계 결정을 담은 짧은 ADR 모음입니다.
 | [0002](./0002-request-scoped-index-params.md) | 요청 범위 RAG 인덱스 파라미터 | Accepted |
 | [0003](./0003-rag-fallback.md) | 실패 또는 빈 결과 시 RAG 폴백 | Accepted |
 | [0004](./0004-context-truncate.md) | LLM 입력 컨텍스트 truncate (v1) | Accepted |
+| [0005](./0005-monorepo-and-sse.md) | pnpm 모노레포 및 SSE 스트리밍 | Accepted |

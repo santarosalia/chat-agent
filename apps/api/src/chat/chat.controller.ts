@@ -1,13 +1,15 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, Res } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBody,
   ApiExtraModels,
   ApiOkResponse,
   ApiOperation,
+  ApiProduces,
   ApiTags,
   getSchemaPath,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { ChatService } from './chat.service';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import { ChatResponseDto, ChatResponseSchema } from './dto/chat-response.dto';
@@ -94,5 +96,31 @@ export class ChatController {
   })
   async chat(@Body() body: ChatRequestDto): Promise<ChatResponseDto> {
     return this.chatService.chat(body);
+  }
+
+  @Post('chat/stream')
+  @ApiOperation({
+    summary: '선택적 RAG 검색과 함께 SSE 스트리밍 채팅',
+    description:
+      'retrieve → inject → truncate → LLM 파이프라인은 POST /chat과 동일합니다. 응답은 text/event-stream (meta, delta, done, error 이벤트).',
+  })
+  @ApiBody({ type: ChatRequestDto })
+  @ApiProduces('text/event-stream')
+  @ApiOkResponse({
+    description: 'SSE 스트림 (event: meta | delta | done | error)',
+  })
+  async chatStream(
+    @Body() body: ChatRequestDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    await this.chatService.streamChat(body, (chunk) => {
+      res.write(chunk);
+    });
+    res.end();
   }
 }

@@ -10,11 +10,20 @@ import { LLM_INPUT_MAX_MESSAGES } from './context-truncate';
 import { ChatService, getLastUserMessageContent } from './chat.service';
 import { ChatRole } from './dto/chat-message.dto';
 
+const mockStream = jest.fn();
+
 jest.mock('./chat.graph', () => ({
   createChatGraph: jest.fn(() => ({
     invoke: jest.fn().mockResolvedValue({ response: 'Assistant reply' }),
   })),
   toLangChainMessages: jest.fn((messages) => messages),
+}));
+
+jest.mock('@langchain/openai', () => ({
+  ChatOpenAI: jest.fn().mockImplementation(() => ({
+    stream: mockStream,
+    invoke: jest.fn(),
+  })),
 }));
 
 const mockCreateChatGraph = createChatGraph as jest.MockedFunction<
@@ -49,6 +58,7 @@ describe('ChatService', () => {
     global.fetch = originalFetch;
     jest.clearAllMocks();
     jest.restoreAllMocks();
+    mockStream.mockReset();
   });
 
   function createConfig(
@@ -205,6 +215,64 @@ describe('ChatService', () => {
       content: 'retrieve and answer this',
     });
     expect(llmMessages.some((m) => m.content === 'history-0')).toBe(false);
+  });
+
+  it('streamChat emits meta, delta, and done SSE events with rag metadata', async () => {
+    async function* tokenStream() {
+      yield { content: 'Hel' };
+      yield { content: 'lo' };
+    }
+    mockStream.mockResolvedValue(tokenStream());
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () =>
+        buildRagRetrieveResponse(
+          [{ filename: 'doc.pdf', page: 2, snippet: 'ctx' }],
+          { query: 'Hi' },
+        ),
+    });
+
+    const service = createService();
+    const chunks: string[] = [];
+    await service.streamChat(
+      { messages: [{ role: ChatRole.User, content: 'Hi' }] },
+      (chunk) => chunks.push(chunk),
+    );
+
+    const joined = chunks.join('');
+    expect(joined).toContain('event: meta');
+    expect(joined).toContain('"rag_used":true');
+    expect(joined).toContain('event: delta');
+    expect(joined).toContain('"content":"Hel"');
+    expect(joined).toContain('event: done');
+    expect(joined).toContain('"content":"Hello"');
+  });
+
+  it('streamChat meta reflects rag_used false on RAG fallback', async () => {
+    async function* tokenStream() {
+      yield { content: 'ok' };
+    }
+    mockStream.mockResolvedValue(tokenStream());
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    const service = createService();
+    const chunks: string[] = [];
+    await service.streamChat(
+      { messages: [{ role: ChatRole.User, content: 'Hi' }] },
+      (chunk) => chunks.push(chunk),
+    );
+
+    const joined = chunks.join('');
+    expect(joined).toContain('event: meta');
+    expect(joined).toContain('"rag_used":false');
+    expect(joined).not.toContain('"citations"');
   });
 
   it('returns rag_used false when RAG API responds with legacy results field only', async () => {
