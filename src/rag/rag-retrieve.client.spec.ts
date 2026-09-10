@@ -122,6 +122,20 @@ describe('RagRetrieveClient', () => {
     expect(result.contextBlock).toBeNull();
   });
 
+  it('returns empty result on 4xx response', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+    });
+
+    const client = createClient({ RAG_BASE: 'http://rag.local' });
+    const result = await client.retrieve('query', 'group-a');
+    expect(result.ragUsed).toBe(false);
+    expect(result.citations).toEqual([]);
+    expect(result.contextBlock).toBeNull();
+  });
+
   it('returns empty result on 5xx response', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: false,
@@ -132,6 +146,8 @@ describe('RagRetrieveClient', () => {
     const client = createClient({ RAG_BASE: 'http://rag.local' });
     const result = await client.retrieve('query', 'group-a');
     expect(result.ragUsed).toBe(false);
+    expect(result.citations).toEqual([]);
+    expect(result.contextBlock).toBeNull();
   });
 
   it('returns empty result on timeout', async () => {
