@@ -12,7 +12,7 @@ export class ChatMessageDto {
   @IsEnum(ChatRole)
   role!: ChatRole;
 
-  @ApiProperty({ example: 'What is in the employee handbook?' })
+  @ApiProperty({ example: '직원 핸드북에는 무엇이 있나요?' })
   @IsString()
   @MinLength(1)
   content!: string;

@@ -16,7 +16,7 @@ async function bootstrap() {
   const swaggerConfig = new DocumentBuilder()
     .setTitle('chat-agent')
     .setDescription(
-      'RAG-backed chat agent API (v1). RAG uses POST /v1/retrieve only; the final answer LLM runs in chat-agent. Delegating to RAG /v1/query is out of scope (contract A).',
+      'RAG 기반 채팅 에이전트 API (v1). RAG는 POST /v1/retrieve만 사용하며, 최종 답변 LLM은 chat-agent에서 실행됩니다. RAG /v1/query에 위임하는 것은 범위 밖입니다(Contract A). LLM 프로토콜은 OpenAI 호환을 유지하며, 설정용 환경 변수 이름은 VLLM_* (VLLM_API_KEY, VLLM_BASE_URL, VLLM_MODEL)입니다.',
     )
     .setVersion('1.0')
     .build();
