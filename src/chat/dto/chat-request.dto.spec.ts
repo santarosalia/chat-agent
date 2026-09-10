@@ -8,12 +8,12 @@ describe('ChatRequestDto', () => {
     return validate(plainToInstance(ChatRequestDto, body));
   }
 
-  it('fails validation when group_id is missing', async () => {
+  it('passes validation without group_id', async () => {
     const errors = await validateDto({
       messages: [{ role: ChatRole.User, content: 'Hello' }],
     });
 
-    expect(errors.some((error) => error.property === 'group_id')).toBe(true);
+    expect(errors).toHaveLength(0);
   });
 
   it('passes validation with group_id and no top_k', async () => {
@@ -38,7 +38,6 @@ describe('ChatRequestDto', () => {
   it('fails validation when top_k is less than 1', async () => {
     const errors = await validateDto({
       messages: [{ role: ChatRole.User, content: 'Hello' }],
-      group_id: 'team-a',
       top_k: 0,
     });
 

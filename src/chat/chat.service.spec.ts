@@ -103,6 +103,25 @@ describe('ChatService', () => {
     });
   });
 
+  it('omits group_id from retrieve when request has no group_id', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    const service = createService();
+    await service.chat({
+      messages: [{ role: ChatRole.User, content: 'Hello' }],
+    });
+
+    const body = JSON.parse(
+      (global.fetch as jest.Mock).mock.calls[0][1].body as string,
+    );
+    expect(body).not.toHaveProperty('group_id');
+    expect(body.top_k).toBe(5);
+  });
+
   it('passes request top_k to retrieve when provided', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

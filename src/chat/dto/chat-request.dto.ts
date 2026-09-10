@@ -7,7 +7,6 @@ import {
   IsOptional,
   IsString,
   Min,
-  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { ChatMessageDto } from './chat-message.dto';
@@ -26,13 +25,14 @@ export class ChatRequestDto {
   @Type(() => ChatMessageDto)
   messages!: ChatMessageDto[];
 
-  @ApiProperty({
-    description: 'RAG document group for retrieval',
+  @ApiPropertyOptional({
+    description:
+      'RAG document group; omit to search all documents (group_id not sent to retrieve)',
     example: 'hr-docs',
   })
+  @IsOptional()
   @IsString()
-  @MinLength(1)
-  group_id!: string;
+  group_id?: string;
 
   @ApiPropertyOptional({
     description: 'Number of chunks to retrieve (default 5 when omitted)',

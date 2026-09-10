@@ -56,7 +56,7 @@ Interactive OpenAPI docs are at [http://localhost:3000/docs](http://localhost:30
 }
 ```
 
-`group_id` is required. `top_k` is optional and defaults to `5` when omitted.
+`group_id` is optional; omit it to search all documents (`group_id` is not sent to retrieve). `top_k` is optional and defaults to `5` when omitted.
 
 **Response (RAG used)**
 
@@ -107,13 +107,14 @@ POST {RAG_BASE}/v1/retrieve
 {
   "query": "<last user message>",
   "mode": "hybrid",
-  "group_id": "<request group_id>",
   "top_k": "<request top_k or 5>",
   "rerank": true,
   "snippet": true,
   "content": false
 }
 ```
+
+When the chat request includes `group_id`, it is added to the retrieve body; otherwise the field is omitted (whole-corpus search).
 
 - Timeout: **5 seconds**, no retries
 - On empty results, timeout, or RAG 4xx/5xx: answers without RAG (`rag_used: false`)

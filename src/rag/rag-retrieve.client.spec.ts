@@ -54,17 +54,17 @@ describe('RagRetrieveClient', () => {
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: 'how to start',
-          mode: 'hybrid',
-          group_id: 'req-group',
-          top_k: 3,
-          rerank: true,
-          snippet: true,
-          content: false,
-        }),
       }),
     );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
+      query: 'how to start',
+      mode: 'hybrid',
+      group_id: 'req-group',
+      top_k: 3,
+      rerank: true,
+      snippet: true,
+      content: false,
+    });
     expect(result.ragUsed).toBe(true);
     expect(result.citations).toEqual([
       { filename: 'guide.pdf', page: 2, snippet: 'NestJS basics' },
@@ -72,6 +72,22 @@ describe('RagRetrieveClient', () => {
     expect(result.contextBlock).toBe(
       formatContextBlock(result.citations),
     );
+  });
+
+  it('omits group_id from retrieve body when not provided', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+    global.fetch = fetchMock;
+
+    const client = createClient({ RAG_BASE: 'http://rag.local/' });
+    await client.retrieve('query');
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body).not.toHaveProperty('group_id');
+    expect(body.top_k).toBe(5);
   });
 
   it('defaults top_k to 5 when not provided', async () => {

@@ -23,8 +23,16 @@ export class ChatController {
   @ApiBody({
     type: ChatRequestDto,
     examples: {
-      withTopK: {
-        summary: 'With explicit top_k',
+      wholeCorpus: {
+        summary: 'Whole-corpus search (no group_id)',
+        value: {
+          messages: [
+            { role: 'user', content: 'What is in the employee handbook?' },
+          ],
+        },
+      },
+      withGroupId: {
+        summary: 'Scoped to a document group',
         value: {
           messages: [
             { role: 'user', content: 'What is in the employee handbook?' },
@@ -33,24 +41,14 @@ export class ChatController {
           top_k: 10,
         },
       },
-      defaultTopK: {
-        summary: 'Default top_k (5 when omitted)',
-        value: {
-          messages: [
-            { role: 'user', content: 'What is in the employee handbook?' },
-          ],
-          group_id: 'hr-docs',
-        },
-      },
     },
   })
   @ApiBadRequestResponse({
-    description:
-      'Request validation failed (e.g. missing group_id, empty messages, invalid top_k)',
+    description: 'Request validation failed (e.g. empty messages, invalid top_k)',
     schema: {
       example: {
         statusCode: 400,
-        message: ['group_id must be longer than or equal to 1 characters'],
+        message: ['top_k must not be less than 1'],
         error: 'Bad Request',
       },
     },

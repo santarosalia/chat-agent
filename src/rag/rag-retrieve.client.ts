@@ -16,7 +16,7 @@ export class RagRetrieveClient {
 
   async retrieve(
     query: string,
-    groupId: string,
+    groupId?: string,
     topK = 5,
   ): Promise<RagRetrieveResult> {
     const ragBase = this.config.get<string>('RAG_BASE');
@@ -32,15 +32,7 @@ export class RagRetrieveClient {
       const response = await fetch(`${ragBase.replace(/\/$/, '')}/v1/retrieve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query,
-          mode: 'hybrid',
-          group_id: groupId,
-          top_k: topK,
-          rerank: true,
-          snippet: true,
-          content: false,
-        }),
+        body: JSON.stringify(buildRetrieveBody(query, groupId, topK)),
         signal: controller.signal,
       });
 
@@ -77,6 +69,25 @@ export class RagRetrieveClient {
     }
   }
 
+}
+
+function buildRetrieveBody(
+  query: string,
+  groupId: string | undefined,
+  topK: number,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    query,
+    mode: 'hybrid',
+    top_k: topK,
+    rerank: true,
+    snippet: true,
+    content: false,
+  };
+  if (groupId) {
+    body.group_id = groupId;
+  }
+  return body;
 }
 
 function emptyResult(): RagRetrieveResult {
