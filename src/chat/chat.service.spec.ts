@@ -47,9 +47,9 @@ describe('ChatService', () => {
     return {
       get: (key: string) => {
         const values: Record<string, string | undefined> = {
-          OPENAI_API_KEY: 'test-key',
-          OPENAI_BASE_URL: 'http://llm.local/v1',
-          OPENAI_MODEL: 'test-model',
+          VLLM_API_KEY: 'test-key',
+          VLLM_BASE_URL: 'http://llm.local/v1',
+          VLLM_MODEL: 'test-model',
           RAG_BASE: 'http://rag.local',
           RAG_GROUP_ID: 'default-group',
           RAG_TOP_K: '5',

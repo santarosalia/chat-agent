@@ -26,9 +26,9 @@ The server listens on `PORT` (default `3000`).
 
 | Variable | Description |
 |----------|-------------|
-| `OPENAI_API_KEY` | API key for the OpenAI-compatible LLM |
-| `OPENAI_BASE_URL` | Base URL for the LLM API (e.g. `https://api.openai.com/v1`) |
-| `OPENAI_MODEL` | Model name (e.g. `gpt-4o-mini`) |
+| `VLLM_API_KEY` | API key for the OpenAI-compatible LLM |
+| `VLLM_BASE_URL` | Base URL for the LLM API (e.g. `https://api.openai.com/v1`) |
+| `VLLM_MODEL` | Model name (e.g. `gpt-4o-mini`) |
 | `RAG_BASE` | Base URL of the RAG retrieval service |
 | `RAG_GROUP_ID` | Default `group_id` when the request omits it |
 | `RAG_TOP_K` | Number of chunks to retrieve (default `5`) |
