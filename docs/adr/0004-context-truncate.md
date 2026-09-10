@@ -13,7 +13,7 @@
 - **항상 유지:** 모든 `system` 메시지, RAG inject block(`[Retrieved context]`로 시작하는 retrieved context), **마지막 `user` 메시지**.
 - 위 always-keep 집합을 제외한 나머지 메시지 중 **앞(오래된)쪽부터** 제거하여 총 개수 ≤ N.
 - v1에서는 **중간 요약(summarization) 없음**.
-- Retrieve query는 요청 `messages`의 **마지막 user 메시지 원문** 그대로 사용 (truncate 미적용).
+- Retrieve query는 요청 `messages`의 **마지막 user 메시지 원문** 그대로 사용 (truncate 미적용; 리라이트·히스토리 합치기 금지 — [ADR 0001](./0001-contract-a-retrieve-only.md)).
 
 ## Consequences
 
