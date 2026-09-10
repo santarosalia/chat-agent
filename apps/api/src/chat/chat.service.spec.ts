@@ -7,6 +7,7 @@ import {
 import { RagRetrieveClient } from '../rag/rag-retrieve.client';
 import { createChatGraph, toLangChainMessages } from './chat.graph';
 import { LLM_INPUT_MAX_MESSAGES } from './context-truncate';
+import { ChatHistoryService } from '../chat-history/chat-history.service';
 import { ChatService, getLastUserMessageContent } from './chat.service';
 import { ChatRole } from './dto/chat-message.dto';
 
@@ -78,8 +79,22 @@ describe('ChatService', () => {
     } as ConfigService;
   }
 
+  function createChatHistoryMock(): Pick<
+    ChatHistoryService,
+    'assertCanAppend' | 'appendTurn'
+  > {
+    return {
+      assertCanAppend: jest.fn().mockResolvedValue(undefined),
+      appendTurn: jest.fn().mockResolvedValue(undefined),
+    };
+  }
+
   function createService(config: ConfigService = createConfig()) {
-    return new ChatService(config, new RagRetrieveClient(config));
+    return new ChatService(
+      config,
+      new RagRetrieveClient(config),
+      createChatHistoryMock() as ChatHistoryService,
+    );
   }
 
   it('returns rag_used true with citations when RAG API returns citations', async () => {

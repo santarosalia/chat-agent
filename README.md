@@ -6,7 +6,7 @@
 
 | 패키지 | 설명 |
 |--------|------|
-| `apps/api` | `POST /chat` (JSON), `POST /chat/stream` (SSE), `GET /health` |
+| `apps/api` | `POST /chat` (JSON), `POST /chat/stream` (SSE), `DELETE /sessions/:id`, `GET /health` |
 | `apps/web` | 로컬 API 테스트용 채팅 UI (로그인·히스토리 저장 없음) |
 
 ## 빠른 시작
@@ -17,7 +17,10 @@ pnpm install
 
 # API 환경 변수
 cp apps/api/.env.example apps/api/.env
-# VLLM_*, RAG_BASE, CORS_ORIGIN 등 설정
+# VLLM_*, RAG_BASE, DATABASE_URL, CORS_ORIGIN 등 설정
+
+# (선택) 채팅 기록 마이그레이션
+pnpm --filter @chat-agent/api prisma:migrate
 
 # (선택) Web 환경 변수
 cp apps/web/.env.example apps/web/.env.local
@@ -50,6 +53,8 @@ LLM 프로토콜은 OpenAI 호환을 유지하며, 설정용 환경 변수 이�
 | `RAG_BASE` | RAG 검색 서비스 기본 URL |
 | `PORT` | HTTP 포트 (기본 `3000`) |
 | `CORS_ORIGIN` | 허용 Origin (기본 `http://localhost:3001`, 쉼표 구분) |
+| `DATABASE_URL` | Postgres 연결 URL (`chat_agent` 스키마, Prisma 마이그레이션) |
+| `CHAT_HISTORY_TTL_DAYS` | 기록 TTL 일수 (기본 `30`, 배치/cron 만료용; 요청 경로 GC 없음) |
 
 ### Web (`apps/web/.env.local`)
 
@@ -66,6 +71,13 @@ LLM 프로토콜은 OpenAI 호환을 유지하며, 설정용 환경 변수 이�
 ### `POST /chat/stream` (SSE)
 
 동일 요청 본문. `text/event-stream` 이벤트: `meta` → `delta`* → `done` (오류 시 `error`, `done` 없음). RAG 필드는 `meta` 전용. 브라우저는 `fetch` + SSE 파서 사용(`EventSource` 금지). 스키마는 [ADR 0005](./docs/adr/0005-monorepo-and-sse.md) 참고.
+
+### 채팅 기록 (v1.5, append-only)
+
+- 요청에 선택 `session_id`(UUID), `user_id`(문자열). `session_id` 생략 시 기록 저장 안 함.
+- `DELETE /sessions/:id` — 세션 소프트 삭제, **항상 204**.
+- 삭제된 세션에 append → **410**; 고정된 `user_id` 불일치 → **409**.
+- 조회 API 없음. 상세: [ADR 0006](./docs/adr/0006-chat-history-append-only.md).
 
 ### RAG
 
@@ -85,8 +97,11 @@ pnpm start:api     # API 프로덕션 실행 (빌드 후)
 apps/
   api/src/
     chat/           # Controller, service, LangGraph, SSE, DTOs
+    chat-history/   # Append-only history, sessions DELETE
+    prisma/         # Prisma module
     rag/            # Retrieve client, context injector
     health/
+  api/prisma/       # schema, migrations (chat_agent)
   web/
     app/            # Next.js test UI
     lib/            # API client

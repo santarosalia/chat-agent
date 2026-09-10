@@ -12,9 +12,13 @@
     "start:prod": "node dist/main",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:cov": "jest --coverage"
+    "test:cov": "jest --coverage",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@prisma/client": "^6.6.0",
     "@langchain/core": "^0.3.42",
     "@langchain/langgraph": "^0.2.62",
     "@langchain/openai": "^0.5.5",
@@ -29,6 +33,7 @@
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
+    "prisma": "^6.6.0",
     "@nestjs/cli": "^11.0.6",
     "@nestjs/schematics": "^11.0.5",
     "@nestjs/testing": "^11.0.12",

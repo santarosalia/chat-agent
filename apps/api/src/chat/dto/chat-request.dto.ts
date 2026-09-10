@@ -6,6 +6,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -44,4 +45,23 @@ export class ChatRequestDto {
   @IsInt()
   @Min(1)
   top_k?: number;
+
+  @ApiPropertyOptional({
+    description:
+      '클라이언트 생성 session UUID. 생략 시 채팅 기록 영속화를 건너뜁니다.',
+    format: 'uuid',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  @IsOptional()
+  @IsUUID()
+  session_id?: string;
+
+  @ApiPropertyOptional({
+    description:
+      '선택적 사용자 식별자(문자열, FK 없음). 첫 append 시 제공되면 세션에 고정됩니다.',
+    example: 'user-abc-123',
+  })
+  @IsOptional()
+  @IsString()
+  user_id?: string;
 }

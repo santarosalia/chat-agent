@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
+import { ChatHistoryService } from '../chat-history/chat-history.service';
 import { injectRetrievedContext } from '../rag/rag-context.injector';
 import { RagRetrieveClient } from '../rag/rag-retrieve.client';
 import { RagRetrieveResult } from '../rag/rag.types';
@@ -11,7 +12,7 @@ import {
   DEFAULT_RAG_TOP_K,
 } from './dto/chat-request.dto';
 import { ChatResponseDto } from './dto/chat-response.dto';
-import { ChatMessageDto } from './dto/chat-message.dto';
+import { ChatMessageDto, ChatRole } from './dto/chat-message.dto';
 import {
   chunkString,
   extractStreamChunkContent,
@@ -35,6 +36,7 @@ export class ChatService {
   constructor(
     private readonly config: ConfigService,
     private readonly ragClient: RagRetrieveClient,
+    private readonly chatHistory: ChatHistoryService,
   ) {
     this.model = new ChatOpenAI({
       apiKey: this.config.get<string>('VLLM_API_KEY'),
@@ -47,11 +49,14 @@ export class ChatService {
   }
 
   async chat(request: ChatRequestDto): Promise<ChatResponseDto> {
+    await this.ensureHistoryAllowed(request);
     const prepared = await this.prepareChatInput(request);
     const result = await this.graph.invoke({
       messages: toLangChainMessages(prepared.truncatedMessages),
     });
-    return this.buildResponse(prepared.retrieval, result.response ?? '');
+    const response = this.buildResponse(prepared.retrieval, result.response ?? '');
+    await this.persistTurnIfRequested(request, response);
+    return response;
   }
 
   async streamChat(
@@ -60,6 +65,7 @@ export class ChatService {
     signal?: AbortSignal,
   ): Promise<void> {
     try {
+      await this.ensureHistoryAllowed(request);
       const prepared = await this.prepareChatInput(request);
       if (signal?.aborted) {
         return;
@@ -83,6 +89,14 @@ export class ChatService {
           message: { role: 'assistant', content: fullContent },
         }),
       );
+
+      await this.persistTurnIfRequested(request, {
+        message: { role: 'assistant', content: fullContent },
+        rag_used: prepared.retrieval.ragUsed,
+        citations: prepared.retrieval.ragUsed
+          ? prepared.retrieval.citations
+          : undefined,
+      });
     } catch (error) {
       if (signal?.aborted || isAbortError(error)) {
         return;
@@ -185,6 +199,48 @@ export class ChatService {
     }
     return fullContent;
   }
+
+  async ensureHistoryAllowed(request: ChatRequestDto): Promise<void> {
+    if (!request.session_id) {
+      return;
+    }
+    await this.chatHistory.assertCanAppend(
+      request.session_id,
+      request.user_id,
+    );
+  }
+
+  private async persistTurnIfRequested(
+    request: ChatRequestDto,
+    response: ChatResponseDto,
+  ): Promise<void> {
+    if (!request.session_id) {
+      return;
+    }
+    const userContent = getLastUserMessageContentForHistory(request.messages);
+    if (!userContent) {
+      return;
+    }
+    await this.chatHistory.appendTurn({
+      sessionId: request.session_id,
+      userId: request.user_id,
+      userContent,
+      assistantContent: response.message.content,
+      ragUsed: response.rag_used,
+      citations: response.citations,
+    });
+  }
+}
+
+export function getLastUserMessageContentForHistory(
+  messages: ChatMessageDto[],
+): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === ChatRole.User) {
+      return messages[i].content;
+    }
+  }
+  return undefined;
 }
 
 export function getLastUserMessageContent(
