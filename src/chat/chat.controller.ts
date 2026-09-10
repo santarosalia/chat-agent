@@ -1,5 +1,6 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBody,
   ApiExtraModels,
   ApiOkResponse,
@@ -22,22 +23,33 @@ export class ChatController {
   @ApiBody({
     type: ChatRequestDto,
     examples: {
+      wholeCorpus: {
+        summary: 'Whole-corpus search (no group_id)',
+        value: {
+          messages: [
+            { role: 'user', content: 'What is in the employee handbook?' },
+          ],
+        },
+      },
       withGroupId: {
-        summary: 'With optional group_id',
+        summary: 'Scoped to a document group',
         value: {
           messages: [
             { role: 'user', content: 'What is in the employee handbook?' },
           ],
           group_id: 'hr-docs',
+          top_k: 10,
         },
       },
-      withoutGroupId: {
-        summary: 'Without group_id (uses RAG_GROUP_ID default)',
-        value: {
-          messages: [
-            { role: 'user', content: 'What is in the employee handbook?' },
-          ],
-        },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Request validation failed (e.g. empty messages, invalid top_k)',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: ['top_k must not be less than 1'],
+        error: 'Bad Request',
       },
     },
   })

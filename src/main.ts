@@ -15,7 +15,9 @@ async function bootstrap() {
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('chat-agent')
-    .setDescription('RAG-backed chat agent API (v1)')
+    .setDescription(
+      'RAG-backed chat agent API (v1). RAG uses POST /v1/retrieve only; the final answer LLM runs in chat-agent. Delegating to RAG /v1/query is out of scope (contract A).',
+    )
     .setVersion('1.0')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
