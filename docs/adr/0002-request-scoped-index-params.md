@@ -1,23 +1,23 @@
-# ADR 0002: Request-scoped RAG index parameters
+# ADR 0002: 요청 범위 RAG 인덱스 파라미터
 
 **Status:** Accepted  
 **Date:** 2026-09-10
 
 ## Context
 
-RAG retrieval is scoped by document group (`group_id`) and result count (`top_k`). These vary per tenant or request. Storing them in environment variables (`RAG_GROUP_ID`, `RAG_TOP_K`) couples deployment config to index selection and prevents multi-tenant or per-request routing without redeploying.
+RAG 검색은 문서 그룹(`group_id`)과 결과 개수(`top_k`)로 범위가 정해집니다. 이 값들은 테넌트 또는 요청마다 다릅니다. 환경 변수(`RAG_GROUP_ID`, `RAG_TOP_K`)에 저장하면 배포 설정과 인덱스 선택이 결합되어, 재배포 없이는 멀티 테넌트 또는 요청별 라우팅이 불가능합니다.
 
 ## Decision
 
-On **`POST /chat`**, index parameters are **request-scoped**:
+**`POST /chat`**에서 인덱스 파라미터는 **요청 범위**입니다:
 
-- **`group_id`**: optional string; when omitted, search **all documents** and **do not send `group_id`** in the retrieve request body
-- **`top_k`**: optional number; default **5** when omitted
+- **`group_id`**: 선택적 문자열; 생략 시 **전체 문서**를 검색하며 retrieve 요청 본문에 **`group_id`를 보내지 않음**
+- **`top_k`**: 선택적 숫자; 생략 시 기본값 **5**
 
-Remove `RAG_GROUP_ID` and `RAG_TOP_K` from environment configuration. **`RAG_BASE`** remains an env variable (infrastructure / service URL only).
+환경 설정에서 `RAG_GROUP_ID`와 `RAG_TOP_K`를 제거합니다. **`RAG_BASE`**는 환경 변수로 유지합니다(인프라/서비스 URL만).
 
 ## Consequences
 
-- Callers may omit `group_id` for whole-corpus retrieval; when provided, it is passed through to RAG.
-- Operators configure only where RAG lives (`RAG_BASE`), not which index each chat uses.
-- Retrieve calls include `top_k` from the request (or default 5) and include `group_id` only when the chat request supplies it.
+- 호출자는 전체 코퍼스 검색을 위해 `group_id`를 생략할 수 있으며, 제공 시 RAG로 전달됩니다.
+- 운영자는 각 채팅이 사용하는 인덱스가 아니라 RAG 위치(`RAG_BASE`)만 설정합니다.
+- retrieve 호출에는 요청의 `top_k`(또는 기본값 5)가 포함되며, `group_id`는 채팅 요청에서 제공된 경우에만 포함됩니다.

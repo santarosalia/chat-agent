@@ -19,23 +19,23 @@ export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
   @Post('chat')
-  @ApiOperation({ summary: 'Send a chat message with optional RAG retrieval' })
+  @ApiOperation({ summary: '선택적 RAG 검색과 함께 채팅 메시지 전송' })
   @ApiBody({
     type: ChatRequestDto,
     examples: {
       wholeCorpus: {
-        summary: 'Whole-corpus search (no group_id)',
+        summary: '전체 코퍼스 검색 (group_id 없음)',
         value: {
           messages: [
-            { role: 'user', content: 'What is in the employee handbook?' },
+            { role: 'user', content: '직원 핸드북에는 무엇이 있나요?' },
           ],
         },
       },
       withGroupId: {
-        summary: 'Scoped to a document group',
+        summary: '문서 그룹 범위로 검색',
         value: {
           messages: [
-            { role: 'user', content: 'What is in the employee handbook?' },
+            { role: 'user', content: '직원 핸드북에는 무엇이 있나요?' },
           ],
           group_id: 'hr-docs',
           top_k: 10,
@@ -44,7 +44,7 @@ export class ChatController {
     },
   })
   @ApiBadRequestResponse({
-    description: 'Request validation failed (e.g. empty messages, invalid top_k)',
+    description: '요청 유효성 검사 실패 (예: 빈 messages, 잘못된 top_k)',
     schema: {
       example: {
         statusCode: 400,
@@ -54,18 +54,18 @@ export class ChatController {
     },
   })
   @ApiOkResponse({
-    description: 'Assistant reply with optional RAG citations',
+    description: '선택적 RAG 인용(citations)이 포함된 assistant 응답',
     content: {
       'application/json': {
         schema: { $ref: getSchemaPath(ChatResponseSchema) },
         examples: {
           ragUsed: {
-            summary: 'RAG retrieval used',
+            summary: 'RAG 검색 사용',
             value: {
               message: {
                 role: 'assistant',
                 content:
-                  'According to the handbook, employees receive 20 days of PTO annually.',
+                  '핸드북에 따르면 직원은 연간 20일의 유급 휴가를 받습니다.',
               },
               rag_used: true,
               citations: [
@@ -73,17 +73,17 @@ export class ChatController {
                   filename: 'handbook.pdf',
                   page: 3,
                   snippet:
-                    'Employees are entitled to 20 days of paid time off per year.',
+                    '직원은 연간 20일의 유급 휴가를 받을 자격이 있습니다.',
                 },
               ],
             },
           },
           ragNotUsed: {
-            summary: 'RAG not used (citations omitted)',
+            summary: 'RAG 미사용 (citations 생략)',
             value: {
               message: {
                 role: 'assistant',
-                content: 'I can help with that based on general knowledge.',
+                content: '일반적인 지식을 바탕으로 도와드릴 수 있습니다.',
               },
               rag_used: false,
             },

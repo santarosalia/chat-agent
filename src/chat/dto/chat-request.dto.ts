@@ -16,8 +16,8 @@ export const DEFAULT_RAG_TOP_K = 5;
 export class ChatRequestDto {
   @ApiProperty({
     type: [ChatMessageDto],
-    description: 'Conversation history; at least one message is required',
-    example: [{ role: 'user', content: 'What is in the employee handbook?' }],
+    description: '대화 기록; 최소 한 개의 메시지가 필요합니다',
+    example: [{ role: 'user', content: '직원 핸드북에는 무엇이 있나요?' }],
   })
   @IsArray()
   @ArrayMinSize(1)
@@ -27,7 +27,7 @@ export class ChatRequestDto {
 
   @ApiPropertyOptional({
     description:
-      'RAG document group; omit to search all documents (group_id not sent to retrieve)',
+      'RAG 문서 그룹; 생략 시 전체 문서 검색 (retrieve 요청에 group_id 미포함)',
     example: 'hr-docs',
   })
   @IsOptional()
@@ -35,7 +35,7 @@ export class ChatRequestDto {
   group_id?: string;
 
   @ApiPropertyOptional({
-    description: 'Number of chunks to retrieve (default 5 when omitted)',
+    description: '검색할 청크 개수 (생략 시 기본값 5)',
     example: 5,
     minimum: 1,
   })

@@ -1,18 +1,18 @@
-# ADR 0001: Contract A — retrieve-only RAG integration
+# ADR 0001: Contract A — retrieve 전용 RAG 연동
 
 **Status:** Accepted  
 **Date:** 2026-09-10
 
 ## Context
 
-chat-agent integrates with an external RAG service (hybrid-rag). RAG can expose both retrieval (`POST /v1/retrieve`) and end-to-end query (`POST /v1/query`) endpoints. Using `/v1/query` would delegate the final answer LLM to RAG, creating two LLM calls and split ownership of citations and prompt assembly.
+chat-agent는 외부 RAG 서비스(hybrid-rag)와 연동합니다. RAG는 검색(`POST /v1/retrieve`)과 end-to-end 쿼리(`POST /v1/query`) 엔드포인트를 모두 제공할 수 있습니다. `/v1/query`를 사용하면 최종 답변 LLM이 RAG에 위임되어 LLM 호출이 두 번 발생하고, 인용(citations) 및 프롬프트 조립의 소유권이 분리됩니다.
 
 ## Decision
 
-chat-agent calls RAG **`POST /v1/retrieve` only**. Retrieved snippets are injected into the chat-agent prompt; the **final answer LLM always runs in chat-agent**. Delegating to RAG `/v1/query` is **out of scope** for v1 (Contract A).
+chat-agent는 RAG **`POST /v1/retrieve`만** 호출합니다. 검색된 스니펫은 chat-agent 프롬프트에 주입되며, **최종 답변 LLM은 항상 chat-agent에서 실행**됩니다. RAG `/v1/query`에 위임하는 것은 v1에서 **범위 밖**입니다(Contract A).
 
 ## Consequences
 
-- Single LLM boundary: chat-agent owns the assistant reply and `rag_used` / `citations` in the response.
-- RAG remains a retrieval backend; no double-LLM latency or conflicting citation semantics.
-- Future `/v1/query` support would require a new contract and ADR.
+- 단일 LLM 경계: chat-agent가 assistant 응답과 `rag_used` / `citations`를 응답에서 소유합니다.
+- RAG는 검색 백엔드로 유지되며, 이중 LLM 지연 또는 충돌하는 인용 의미론이 없습니다.
+- 향후 `/v1/query` 지원은 새 계약과 ADR이 필요합니다.
