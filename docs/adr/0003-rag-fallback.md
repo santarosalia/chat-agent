@@ -9,7 +9,7 @@ RAG 검색은 선택적 보강(enrichment)입니다. RAG 서비스가 느리거�
 
 ## Decision
 
-RAG 검색은 **5초 타임아웃**과 **재시도 없음**을 사용합니다. **빈 citations**, **타임아웃**, **비 2xx RAG 응답(4xx 및 5xx)** 시 chat-agent는 **RAG를 건너뛰고** 자체 LLM만으로 답변합니다.
+RAG 검색은 **5초 타임아웃**과 **재시도 없음**을 사용합니다. 다음 경우 chat-agent는 **RAG를 건너뛰고(skip RAG)** 자체 LLM만으로 답변합니다: **빈 citations**, **타임아웃**, **RAG 4xx/5xx(비 2xx) 응답**.
 
 응답은 **`rag_used: false`**로 설정하고 **`citations`를 생략**합니다.
 

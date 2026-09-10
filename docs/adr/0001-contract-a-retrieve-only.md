@@ -9,7 +9,7 @@ chat-agent는 외부 RAG 서비스(hybrid-rag)와 연동합니다. RAG는 검색
 
 ## Decision
 
-chat-agent는 RAG **`POST /v1/retrieve`만** 호출합니다. 검색된 스니펫은 chat-agent 프롬프트에 주입되며, **최종 답변 LLM은 항상 chat-agent에서 실행**됩니다. RAG `/v1/query`에 위임하는 것은 v1에서 **범위 밖**입니다(Contract A).
+chat-agent는 RAG **`POST /v1/retrieve`만** 호출합니다(retrieve 전용, Contract A). 검색된 스니펫은 chat-agent 프롬프트에 주입되며, **최종 답변 LLM은 항상 chat-agent에서 실행**됩니다. RAG **`/v1/query`에 위임하는 것은 v1에서 범위 밖**이며, Contract A는 retrieve 전용 연동을 의미합니다.
 
 ## Consequences
 
