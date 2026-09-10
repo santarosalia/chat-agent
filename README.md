@@ -8,7 +8,8 @@ RAG-backed chat agent built with **NestJS**, **LangChain**, and **LangGraph**. E
 - `GET /health` — liveness check
 - OpenAI-compatible LLM via environment variables
 - Graceful RAG fallback (timeout, 4xx/5xx, empty results → answer without RAG)
-- Unit tests for retrieve client, context injection, and chat service
+- LLM input truncate (v1): keep system + RAG block + last user; drop oldest others; max 20 messages (ADR 0004)
+- Unit tests for retrieve client, context injection, context truncate, and chat service
 
 ## Quick start
 
@@ -134,6 +135,7 @@ POST /chat
   → extract last user message (retrieve query)
   → RagRetrieveClient → POST {RAG_BASE}/v1/retrieve
   → injectRetrievedContext (if hits)
+  → truncateMessagesForLlm (max 20 messages; ADR 0004)
   → LangGraph (single LLM node) → OpenAI-compatible model
   → JSON response with message, rag_used, citations
 ```

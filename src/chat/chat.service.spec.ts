@@ -5,6 +5,8 @@ import {
   sampleRagApiCitation,
 } from '../rag/rag-retrieve.fixtures';
 import { RagRetrieveClient } from '../rag/rag-retrieve.client';
+import { createChatGraph, toLangChainMessages } from './chat.graph';
+import { LLM_INPUT_MAX_MESSAGES } from './context-truncate';
 import { ChatService, getLastUserMessageContent } from './chat.service';
 import { ChatRole } from './dto/chat-message.dto';
 
@@ -14,6 +16,13 @@ jest.mock('./chat.graph', () => ({
   })),
   toLangChainMessages: jest.fn((messages) => messages),
 }));
+
+const mockCreateChatGraph = createChatGraph as jest.MockedFunction<
+  typeof createChatGraph
+>;
+const mockToLangChainMessages = toLangChainMessages as jest.MockedFunction<
+  typeof toLangChainMessages
+>;
 
 describe('getLastUserMessageContent', () => {
   it('returns content of the last user message', () => {
@@ -38,6 +47,7 @@ describe('ChatService', () => {
 
   afterEach(() => {
     global.fetch = originalFetch;
+    jest.clearAllMocks();
     jest.restoreAllMocks();
   });
 
@@ -162,6 +172,39 @@ describe('ChatService', () => {
       rag_used: false,
     });
     expect(response.citations).toBeUndefined();
+  });
+
+  it('truncates LLM input after RAG inject while retrieve uses last user as-is', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    const droppable = Array.from({ length: LLM_INPUT_MAX_MESSAGES }, (_, i) => ({
+      role: ChatRole.Assistant,
+      content: `history-${i}`,
+    }));
+    const messages = [
+      ...droppable,
+      { role: ChatRole.User, content: 'retrieve and answer this' },
+    ];
+
+    const service = createService();
+    await service.chat({ messages, group_id: 'team-a' });
+
+    const retrieveBody = JSON.parse(
+      (global.fetch as jest.Mock).mock.calls[0][1].body as string,
+    );
+    expect(retrieveBody.query).toBe('retrieve and answer this');
+
+    const llmMessages = mockToLangChainMessages.mock.calls[0][0];
+    expect(llmMessages.length).toBeLessThanOrEqual(LLM_INPUT_MAX_MESSAGES);
+    expect(llmMessages[llmMessages.length - 1]).toEqual({
+      role: ChatRole.User,
+      content: 'retrieve and answer this',
+    });
+    expect(llmMessages.some((m) => m.content === 'history-0')).toBe(false);
   });
 
   it('returns rag_used false when RAG API responds with legacy results field only', async () => {
