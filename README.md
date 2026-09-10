@@ -1,162 +1,95 @@
 # chat-agent
 
-**NestJS**, **LangChain**, **LangGraph**로 구축된 RAG 기반 채팅 에이전트입니다. 외부 RAG 서비스에서 문서 스니펫을 선택적으로 검색해 LLM 프롬프트에 주입하는 비스트리밍 JSON `POST /chat` 엔드포인트를 제공합니다.
+**pnpm 모노레포**: NestJS API(`apps/api`) + Next.js 테스트 UI(`apps/web`). LangChain·LangGraph 기반 RAG 채팅 에이전트로, 외부 RAG에서 문서 스니펫을 선택적으로 검색해 LLM 프롬프트에 주입합니다.
 
-## 기능
+## 패키지
 
-- `POST /chat` — 선택적 RAG 검색 및 인용(citations)이 포함된 채팅
-- `GET /health` — 생존(liveness) 확인
-- 환경 변수를 통한 OpenAI 호환 LLM 연동
-- RAG 폴백 (타임아웃, 4xx/5xx, 빈 결과 → RAG 없이 응답)
-- LLM 입력 truncate (v1): system + RAG block + 마지막 user 유지, 그 외 오래된 메시지 제거, 최대 20개 (ADR 0004)
-- retrieve 클라이언트, 컨텍스트 주입, 컨텍스트 truncate, 채팅 서비스 단위 테스트
+| 패키지 | 설명 |
+|--------|------|
+| `apps/api` | `POST /chat` (JSON), `POST /chat/stream` (SSE), `GET /health` |
+| `apps/web` | 로컬 API 테스트용 채팅 UI (로그인·히스토리 저장 없음) |
 
 ## 빠른 시작
 
 ```bash
-cp .env.example .env
-# LLM 및 RAG 설정을 .env에 입력하세요
+# 루트에서 의존성 설치
+pnpm install
 
-npm install
-npm run start:dev
+# API 환경 변수
+cp apps/api/.env.example apps/api/.env
+# VLLM_*, RAG_BASE, CORS_ORIGIN 등 설정
+
+# (선택) Web 환경 변수
+cp apps/web/.env.example apps/web/.env.local
+
+# API + Web 동시 실행
+pnpm dev
 ```
 
-서버는 `PORT`(기본값 `3000`)에서 수신 대기합니다.
+- API: [http://localhost:3000](http://localhost:3000) (Swagger: [http://localhost:3000/docs](http://localhost:3000/docs))
+- Web: [http://localhost:3001](http://localhost:3001)
 
-앱 실행 중 [http://localhost:3000/docs](http://localhost:3000/docs)에서 대화형 OpenAPI 문서를 확인할 수 있습니다.
+개별 실행:
+
+```bash
+pnpm dev:api   # Nest watch, PORT 기본 3000
+pnpm dev:web   # Next dev, 포트 3001
+```
 
 ## 환경 변수
 
 LLM 프로토콜은 OpenAI 호환을 유지하며, 설정용 환경 변수 이름만 `VLLM_*`(`VLLM_API_KEY`, `VLLM_BASE_URL`, `VLLM_MODEL`)입니다.
 
+### API (`apps/api/.env`)
+
 | 변수 | 설명 |
 |------|------|
 | `VLLM_API_KEY` | OpenAI 호환 LLM API 키 |
-| `VLLM_BASE_URL` | LLM API 기본 URL (예: `https://api.openai.com/v1`) |
+| `VLLM_BASE_URL` | LLM API 기본 URL |
 | `VLLM_MODEL` | 모델 이름 (예: `gpt-4o-mini`) |
 | `RAG_BASE` | RAG 검색 서비스 기본 URL |
-| `PORT` | HTTP 포트 (기본값 `3000`) |
+| `PORT` | HTTP 포트 (기본 `3000`) |
+| `CORS_ORIGIN` | 허용 Origin (기본 `http://localhost:3001`, 쉼표 구분) |
 
-## API
+### Web (`apps/web/.env.local`)
 
-### `GET /health`
+| 변수 | 설명 |
+|------|------|
+| `NEXT_PUBLIC_API_BASE` | API 기본 URL (기본 `http://localhost:3000`) |
 
-```json
-{ "status": "ok" }
-```
+## API 요약
 
-### `POST /chat`
+### `POST /chat` (JSON, 비스트리밍)
 
-**요청**
+기존 계약 유지. 응답: `message`, `rag_used`, 선택적 `citations`.
 
-```json
-{
-  "messages": [
-    { "role": "user", "content": "What is in the handbook?" }
-  ],
-  "group_id": "hr-docs",
-  "top_k": 5
-}
-```
+### `POST /chat/stream` (SSE)
 
-`group_id`는 선택 사항입니다. 생략하면 전체 문서를 검색합니다(`group_id`는 retrieve 요청에 포함되지 않음). `top_k`도 선택 사항이며, 생략 시 기본값은 `5`입니다.
+동일 요청 본문. `text/event-stream` 이벤트: `meta` → `delta`* → `done` (오류 시 `error`, `done` 없음). RAG 필드는 `meta` 전용. 브라우저는 `fetch` + SSE 파서 사용(`EventSource` 금지). 스키마는 [ADR 0005](./docs/adr/0005-monorepo-and-sse.md) 참고.
 
-**응답 (RAG 사용)**
+### RAG
 
-```json
-{
-  "message": {
-    "role": "assistant",
-    "content": "According to the handbook..."
-  },
-  "rag_used": true,
-  "citations": [
-    {
-      "filename": "handbook.pdf",
-      "page": 3,
-      "snippet": "Relevant excerpt..."
-    }
-  ]
-}
-```
-
-**응답 (RAG 미사용)**
-
-```json
-{
-  "message": {
-    "role": "assistant",
-    "content": "I can help with that..."
-  },
-  "rag_used": false
-}
-```
-
-`rag_used`가 `false`이면 `citations`는 생략됩니다.
-
-## RAG 연동
-
-RAG는 `POST /v1/retrieve`만 사용합니다. 최종 답변 LLM은 chat-agent에서 실행됩니다. RAG `/v1/query`에 위임하는 것은 범위 밖입니다(Contract A).
-
-각 채팅 요청에서 **마지막 `user` 메시지의 content**를 검색 쿼리로 사용합니다.
-
-다음 엔드포인트를 호출합니다:
-
-```
-POST {RAG_BASE}/v1/retrieve
-```
-
-```json
-{
-  "query": "<last user message>",
-  "mode": "hybrid",
-  "top_k": "<request top_k or 5>",
-  "rerank": true,
-  "snippet": true,
-  "content": false
-}
-```
-
-채팅 요청에 `group_id`가 포함되면 retrieve 본문에 추가됩니다. 그렇지 않으면 해당 필드는 생략됩니다(전체 코퍼스 검색).
-
-- 타임아웃: **5초**, 재시도 없음
-- 빈 결과, 타임아웃, RAG 4xx/5xx 시: RAG 없이 응답 (`rag_used: false`)
-
-검색이 성공하면 컨텍스트가 **첫 번째 system 메시지 앞**에 주입됩니다(system 메시지가 없으면 맨 앞에 추가):
-
-```
-[Retrieved context]
-- (filename.pdf p.1) snippet text
-- (other.pdf p.4) another snippet
-```
-
-## 아키텍처
-
-```
-POST /chat
-  → extract last user message (retrieve query)
-  → RagRetrieveClient → POST {RAG_BASE}/v1/retrieve
-  → injectRetrievedContext (if hits)
-  → truncateMessagesForLlm (최대 20 메시지; ADR 0004)
-  → LangGraph (single LLM node) → OpenAI-compatible model
-  → JSON response with message, rag_used, citations
-```
+Contract A: `POST {RAG_BASE}/v1/retrieve`만 사용. 폴백·truncate는 [ADR 0003](./docs/adr/0003-rag-fallback.md), [ADR 0004](./docs/adr/0004-context-truncate.md).
 
 ## 개발
 
 ```bash
-npm run build
-npm test
-npm run start:prod
+pnpm test          # API 단위 테스트
+pnpm build         # api + web 빌드
+pnpm start:api     # API 프로덕션 실행 (빌드 후)
 ```
 
 ## 프로젝트 구조
 
 ```
-src/
-  chat/           # Controller, service, LangGraph, DTOs
-  rag/            # Retrieve client, context injector
-  health/         # Health check
-  app.module.ts
-  main.ts
+apps/
+  api/src/
+    chat/           # Controller, service, LangGraph, SSE, DTOs
+    rag/            # Retrieve client, context injector
+    health/
+  web/
+    app/            # Next.js test UI
+    lib/            # API client
+docs/adr/           # Architecture Decision Records
+pnpm-workspace.yaml
 ```
