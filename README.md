@@ -22,6 +22,8 @@ npm run start:dev
 
 The server listens on `PORT` (default `3000`).
 
+Interactive OpenAPI docs are at [http://localhost:3000/docs](http://localhost:3000/docs) while the app is running.
+
 ## Environment variables
 
 | Variable | Description |
