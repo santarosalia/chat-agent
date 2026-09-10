@@ -20,11 +20,11 @@ export class ChatService {
     private readonly ragClient: RagRetrieveClient,
   ) {
     this.model = new ChatOpenAI({
-      apiKey: this.config.get<string>('OPENAI_API_KEY'),
+      apiKey: this.config.get<string>('VLLM_API_KEY'),
       configuration: {
-        baseURL: this.config.get<string>('OPENAI_BASE_URL'),
+        baseURL: this.config.get<string>('VLLM_BASE_URL'),
       },
-      model: this.config.get<string>('OPENAI_MODEL') ?? 'gpt-4o-mini',
+      model: this.config.get<string>('VLLM_MODEL') ?? 'gpt-4o-mini',
     });
     this.graph = createChatGraph(this.model);
   }

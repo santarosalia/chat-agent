@@ -26,11 +26,13 @@ Interactive OpenAPI docs are at [http://localhost:3000/docs](http://localhost:30
 
 ## Environment variables
 
+The LLM protocol remains OpenAI-compatible; only the configuration env names are `VLLM_*` (`VLLM_API_KEY`, `VLLM_BASE_URL`, `VLLM_MODEL`).
+
 | Variable | Description |
 |----------|-------------|
-| `OPENAI_API_KEY` | API key for the OpenAI-compatible LLM |
-| `OPENAI_BASE_URL` | Base URL for the LLM API (e.g. `https://api.openai.com/v1`) |
-| `OPENAI_MODEL` | Model name (e.g. `gpt-4o-mini`) |
+| `VLLM_API_KEY` | API key for the OpenAI-compatible LLM |
+| `VLLM_BASE_URL` | Base URL for the LLM API (e.g. `https://api.openai.com/v1`) |
+| `VLLM_MODEL` | Model name (e.g. `gpt-4o-mini`) |
 | `RAG_BASE` | Base URL of the RAG retrieval service |
 | `PORT` | HTTP port (default `3000`) |
 
