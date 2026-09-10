@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
 import { injectRetrievedContext } from '../rag/rag-context.injector';
 import { RagRetrieveClient } from '../rag/rag-retrieve.client';
+import { truncateMessagesForLlm } from './context-truncate';
 import { createChatGraph, toLangChainMessages } from './chat.graph';
 import {
   ChatRequestDto,
@@ -41,8 +42,10 @@ export class ChatService {
       ? injectRetrievedContext(request.messages, retrieval.contextBlock!)
       : request.messages;
 
+    const truncatedMessages = truncateMessagesForLlm(messagesForLlm);
+
     const result = await this.graph.invoke({
-      messages: toLangChainMessages(messagesForLlm),
+      messages: toLangChainMessages(truncatedMessages),
     });
 
     const response: ChatResponseDto = {

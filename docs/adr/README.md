@@ -7,3 +7,4 @@ chat-agent v1 설계 결정을 담은 짧은 ADR 모음입니다.
 | [0001](./0001-contract-a-retrieve-only.md) | Contract A — retrieve 전용 RAG 연동 | Accepted |
 | [0002](./0002-request-scoped-index-params.md) | 요청 범위 RAG 인덱스 파라미터 | Accepted |
 | [0003](./0003-rag-fallback.md) | 실패 또는 빈 결과 시 RAG 폴백 | Accepted |
+| [0004](./0004-context-truncate.md) | LLM 입력 컨텍스트 truncate (v1) | Accepted |

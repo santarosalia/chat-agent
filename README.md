@@ -8,7 +8,8 @@
 - `GET /health` — 생존(liveness) 확인
 - 환경 변수를 통한 OpenAI 호환 LLM 연동
 - RAG 폴백 (타임아웃, 4xx/5xx, 빈 결과 → RAG 없이 응답)
-- retrieve 클라이언트, 컨텍스트 주입, 채팅 서비스 단위 테스트
+- LLM 입력 truncate (v1): system + RAG block + 마지막 user 유지, 그 외 오래된 메시지 제거, 최대 20개 (ADR 0004)
+- retrieve 클라이언트, 컨텍스트 주입, 컨텍스트 truncate, 채팅 서비스 단위 테스트
 
 ## 빠른 시작
 
@@ -136,6 +137,7 @@ POST /chat
   → extract last user message (retrieve query)
   → RagRetrieveClient → POST {RAG_BASE}/v1/retrieve
   → injectRetrievedContext (if hits)
+  → truncateMessagesForLlm (최대 20 메시지; ADR 0004)
   → LangGraph (single LLM node) → OpenAI-compatible model
   → JSON response with message, rag_used, citations
 ```
