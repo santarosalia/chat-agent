@@ -26,13 +26,13 @@ describe('RagRetrieveClient', () => {
 
   it('returns empty result when RAG_BASE is not configured', async () => {
     const client = createClient({});
-    const result = await client.retrieve('hello');
+    const result = await client.retrieve('hello', 'group-a');
     expect(result.ragUsed).toBe(false);
     expect(result.citations).toEqual([]);
     expect(result.contextBlock).toBeNull();
   });
 
-  it('calls retrieve endpoint with hybrid mode and env defaults', async () => {
+  it('calls retrieve endpoint with request group_id and top_k', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -45,28 +45,26 @@ describe('RagRetrieveClient', () => {
 
     const client = createClient({
       RAG_BASE: 'http://rag.local',
-      RAG_GROUP_ID: 'default-group',
-      RAG_TOP_K: '3',
     });
 
-    const result = await client.retrieve('how to start', 'req-group');
+    const result = await client.retrieve('how to start', 'req-group', 3);
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://rag.local/v1/retrieve',
       expect.objectContaining({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: 'how to start',
-          mode: 'hybrid',
-          group_id: 'req-group',
-          top_k: 3,
-          rerank: true,
-          snippet: true,
-          content: false,
-        }),
       }),
     );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
+      query: 'how to start',
+      mode: 'hybrid',
+      group_id: 'req-group',
+      top_k: 3,
+      rerank: true,
+      snippet: true,
+      content: false,
+    });
     expect(result.ragUsed).toBe(true);
     expect(result.citations).toEqual([
       { filename: 'guide.pdf', page: 2, snippet: 'NestJS basics' },
@@ -74,6 +72,36 @@ describe('RagRetrieveClient', () => {
     expect(result.contextBlock).toBe(
       formatContextBlock(result.citations),
     );
+  });
+
+  it('omits group_id from retrieve body when not provided', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+    global.fetch = fetchMock;
+
+    const client = createClient({ RAG_BASE: 'http://rag.local/' });
+    await client.retrieve('query');
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body).not.toHaveProperty('group_id');
+    expect(body.top_k).toBe(5);
+  });
+
+  it('defaults top_k to 5 when not provided', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+    global.fetch = fetchMock;
+
+    const client = createClient({ RAG_BASE: 'http://rag.local/' });
+    await client.retrieve('query', 'group-a');
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).top_k).toBe(5);
   });
 
   it('does not use RAG when response only has legacy results field', async () => {
@@ -87,30 +115,25 @@ describe('RagRetrieveClient', () => {
     });
 
     const client = createClient({ RAG_BASE: 'http://rag.local' });
-    const result = await client.retrieve('query');
+    const result = await client.retrieve('query', 'group-a');
 
     expect(result.ragUsed).toBe(false);
     expect(result.citations).toEqual([]);
     expect(result.contextBlock).toBeNull();
   });
 
-  it('falls back to env group_id when request group_id is absent', async () => {
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => buildRagRetrieveResponse([]),
+  it('returns empty result on 4xx response', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
     });
-    global.fetch = fetchMock;
 
-    const client = createClient({
-      RAG_BASE: 'http://rag.local/',
-      RAG_GROUP_ID: 'env-group',
-    });
-    await client.retrieve('query');
-
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).group_id).toBe(
-      'env-group',
-    );
+    const client = createClient({ RAG_BASE: 'http://rag.local' });
+    const result = await client.retrieve('query', 'group-a');
+    expect(result.ragUsed).toBe(false);
+    expect(result.citations).toEqual([]);
+    expect(result.contextBlock).toBeNull();
   });
 
   it('returns empty result on 5xx response', async () => {
@@ -121,8 +144,10 @@ describe('RagRetrieveClient', () => {
     });
 
     const client = createClient({ RAG_BASE: 'http://rag.local' });
-    const result = await client.retrieve('query');
+    const result = await client.retrieve('query', 'group-a');
     expect(result.ragUsed).toBe(false);
+    expect(result.citations).toEqual([]);
+    expect(result.contextBlock).toBeNull();
   });
 
   it('returns empty result on timeout', async () => {
@@ -137,7 +162,7 @@ describe('RagRetrieveClient', () => {
 
     jest.useFakeTimers();
     const client = createClient({ RAG_BASE: 'http://rag.local' });
-    const promise = client.retrieve('query');
+    const promise = client.retrieve('query', 'group-a');
     jest.advanceTimersByTime(5001);
     const result = await promise;
     jest.useRealTimers();
@@ -153,7 +178,7 @@ describe('RagRetrieveClient', () => {
     });
 
     const client = createClient({ RAG_BASE: 'http://rag.local' });
-    const result = await client.retrieve('query');
+    const result = await client.retrieve('query', 'group-a');
     expect(result.ragUsed).toBe(false);
   });
 
@@ -176,7 +201,7 @@ describe('RagRetrieveClient', () => {
     });
 
     const client = createClient({ RAG_BASE: 'http://rag.local' });
-    const result = await client.retrieve('query');
+    const result = await client.retrieve('query', 'group-a');
     expect(result.ragUsed).toBe(true);
     expect(result.citations).toEqual([
       { filename: 'notes.md', page: 1, snippet: 'Some note' },
