@@ -143,6 +143,8 @@ export class ChatService {
     write: (chunk: string) => void,
     signal?: AbortSignal,
   ): Promise<string> {
+    let anyDeltaEmitted = false;
+
     try {
       const stream = await this.model.stream(langChainMessages, { signal });
       let fullContent = '';
@@ -154,6 +156,7 @@ export class ChatService {
         if (content) {
           fullContent += content;
           write(formatSseEvent('delta', { content }));
+          anyDeltaEmitted = true;
         }
       }
       if (fullContent.length > 0) {
@@ -163,7 +166,10 @@ export class ChatService {
       if (isAbortError(error) || signal?.aborted) {
         throw error;
       }
-      // LangGraph single-node path does not expose token streaming; fall back below.
+      if (anyDeltaEmitted) {
+        throw error;
+      }
+      // Zero deltas emitted: LangGraph invoke fallback is allowed.
     }
 
     const result = await this.graph.invoke(

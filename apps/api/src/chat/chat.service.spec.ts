@@ -256,6 +256,43 @@ describe('ChatService', () => {
     expect(joined.slice(doneIndex)).not.toContain('"citations"');
   });
 
+  it('streamChat emits error without duplicate deltas when stream fails after partial output', async () => {
+    async function* failingStream() {
+      yield { content: 'partial' };
+      throw new Error('stream broke');
+    }
+    mockStream.mockResolvedValue(failingStream());
+
+    const mockInvoke = jest
+      .fn()
+      .mockResolvedValue({ response: 'full fallback' });
+    mockCreateChatGraph.mockReturnValueOnce({
+      invoke: mockInvoke,
+    } as never);
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    const service = createService();
+    const chunks: string[] = [];
+    await service.streamChat(
+      { messages: [{ role: ChatRole.User, content: 'Hi' }] },
+      (chunk) => chunks.push(chunk),
+    );
+
+    const joined = chunks.join('');
+    expect(mockInvoke).not.toHaveBeenCalled();
+    expect(joined).toContain('event: meta');
+    expect(joined).toContain('"content":"partial"');
+    expect((joined.match(/event: delta/g) ?? []).length).toBe(1);
+    expect(joined).not.toContain('full fallback');
+    expect(joined).toContain('event: error');
+    expect(joined).not.toContain('event: done');
+  });
+
   it('streamChat emits error without done on LLM failure', async () => {
     mockStream.mockRejectedValue(new Error('LLM down'));
 
