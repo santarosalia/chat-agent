@@ -16,7 +16,7 @@ async function bootstrap() {
   const swaggerConfig = new DocumentBuilder()
     .setTitle('chat-agent')
     .setDescription(
-      'RAG-backed chat agent API (v1). RAG uses POST /v1/retrieve only; the final answer LLM runs in chat-agent. Delegating to RAG /v1/query is out of scope (contract A).',
+      'RAG-backed chat agent API (v1). RAG uses POST /v1/retrieve only; the final answer LLM runs in chat-agent. Delegating to RAG /v1/query is out of scope (contract A). The LLM protocol remains OpenAI-compatible; only the configuration env names are VLLM_* (VLLM_API_KEY, VLLM_BASE_URL, VLLM_MODEL).',
     )
     .setVersion('1.0')
     .build();
