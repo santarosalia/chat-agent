@@ -74,4 +74,37 @@ describe('buildChatRequest', () => {
       },
     );
   });
+
+  it('adds session_id and user_id only when provided', () => {
+    const thread: ThreadMessage[] = [
+      msg({ id: '1', role: 'user', content: '질문' }),
+    ];
+    const sessionId = '550e8400-e29b-41d4-a716-446655440000';
+
+    assert.deepEqual(
+      buildChatRequest(thread, {
+        groupId: '',
+        topK: '',
+        sessionId,
+        userId: 'user-a',
+      }),
+      {
+        messages: [{ role: 'user', content: '질문' }],
+        session_id: sessionId,
+        user_id: 'user-a',
+      },
+    );
+
+    assert.deepEqual(
+      buildChatRequest(thread, {
+        groupId: '',
+        topK: '',
+        sessionId: '  ',
+        userId: '',
+      }),
+      {
+        messages: [{ role: 'user', content: '질문' }],
+      },
+    );
+  });
 });

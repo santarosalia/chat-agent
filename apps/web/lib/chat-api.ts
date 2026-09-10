@@ -43,6 +43,50 @@ export interface ChatRequestBody {
   messages: ChatMessage[];
   group_id?: string;
   top_k?: number;
+  session_id?: string;
+  user_id?: string;
+}
+
+export class ChatApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ChatApiError';
+    this.status = status;
+  }
+}
+
+function formatApiError(status: number, rawMessage: string): string {
+  const message = rawMessage.trim();
+  if (status === 409) {
+    return `409 Conflict — ${message || 'user_id 불일치 또는 생략 (frozen session)'}`;
+  }
+  if (status === 410) {
+    return `410 Gone — ${message || '삭제된 session_id에 append 불가'}`;
+  }
+  return message || `HTTP ${status}`;
+}
+
+async function parseErrorResponse(response: Response): Promise<never> {
+  const text = await response.text();
+  let message = text;
+
+  try {
+    const payload = JSON.parse(text) as { message?: string | string[] };
+    if (typeof payload.message === 'string') {
+      message = payload.message;
+    } else if (Array.isArray(payload.message)) {
+      message = payload.message.join(', ');
+    }
+  } catch {
+    // keep raw body
+  }
+
+  throw new ChatApiError(
+    response.status,
+    formatApiError(response.status, message),
+  );
 }
 
 export async function postChat(
@@ -57,11 +101,25 @@ export async function postChat(
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `HTTP ${response.status}`);
+    await parseErrorResponse(response);
   }
 
   return response.json() as Promise<ChatResponse>;
+}
+
+export async function deleteSession(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<number> {
+  const response = await fetch(
+    `${API_BASE}/sessions/${encodeURIComponent(sessionId)}`,
+    {
+      method: 'DELETE',
+      signal,
+    },
+  );
+
+  return response.status;
 }
 
 export async function postChatStream(
@@ -77,8 +135,7 @@ export async function postChatStream(
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `HTTP ${response.status}`);
+    await parseErrorResponse(response);
   }
 
   if (!response.body) {

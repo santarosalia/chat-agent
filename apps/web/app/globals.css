@@ -406,6 +406,39 @@ button:disabled {
   margin-bottom: 0.55rem;
 }
 
+.history-settings {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  align-items: end;
+}
+
+.session-field input {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+}
+
+.session-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.session-actions .ghost {
+  font-size: 0.78rem;
+  padding: 0.35rem 0.55rem;
+}
+
+.session-actions .ghost.danger {
+  color: var(--danger);
+}
+
+.session-status {
+  margin: 0 0 0.55rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 @media (max-width: 560px) {
   .topbar {
     flex-wrap: wrap;
