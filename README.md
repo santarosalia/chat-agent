@@ -55,7 +55,7 @@ LLM 프로토콜은 OpenAI 호환을 유지하며, 설정용 환경 변수 이�
 
 | 변수 | 설명 |
 |------|------|
-| `NEXT_PUBLIC_API_URL` | API 기본 URL (기본 `http://localhost:3000`) |
+| `NEXT_PUBLIC_API_BASE` | API 기본 URL (기본 `http://localhost:3000`) |
 
 ## API 요약
 
@@ -65,7 +65,7 @@ LLM 프로토콜은 OpenAI 호환을 유지하며, 설정용 환경 변수 이�
 
 ### `POST /chat/stream` (SSE)
 
-동일 요청 본문. `text/event-stream` 이벤트: `meta` → `delta`* → `done` (오류 시 `error`). 스키마는 [ADR 0005](./docs/adr/0005-monorepo-and-sse.md) 참고.
+동일 요청 본문. `text/event-stream` 이벤트: `meta` → `delta`* → `done` (오류 시 `error`, `done` 없음). RAG 필드는 `meta` 전용. 브라우저는 `fetch` + SSE 파서 사용(`EventSource` 금지). 스키마는 [ADR 0005](./docs/adr/0005-monorepo-and-sse.md) 참고.
 
 ### RAG
 

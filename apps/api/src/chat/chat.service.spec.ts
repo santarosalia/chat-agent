@@ -217,7 +217,105 @@ describe('ChatService', () => {
     expect(llmMessages.some((m) => m.content === 'history-0')).toBe(false);
   });
 
-  it('streamChat emits meta, delta, and done SSE events with rag metadata', async () => {
+  it('streamChat emits meta before delta and done in order', async () => {
+    async function* tokenStream() {
+      yield { content: 'Hel' };
+      yield { content: 'lo' };
+    }
+    mockStream.mockResolvedValue(tokenStream());
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () =>
+        buildRagRetrieveResponse(
+          [{ filename: 'doc.pdf', page: 2, snippet: 'ctx' }],
+          { query: 'Hi' },
+        ),
+    });
+
+    const service = createService();
+    const chunks: string[] = [];
+    await service.streamChat(
+      { messages: [{ role: ChatRole.User, content: 'Hi' }] },
+      (chunk) => chunks.push(chunk),
+    );
+
+    const joined = chunks.join('');
+    const metaIndex = joined.indexOf('event: meta');
+    const deltaIndex = joined.indexOf('event: delta');
+    const doneIndex = joined.indexOf('event: done');
+
+    expect(metaIndex).toBeGreaterThanOrEqual(0);
+    expect(deltaIndex).toBeGreaterThan(metaIndex);
+    expect(doneIndex).toBeGreaterThan(deltaIndex);
+    expect(joined).toContain('"rag_used":true');
+    expect(joined).toContain('"content":"Hel"');
+    expect(joined).toContain('"content":"Hello"');
+    expect(joined.slice(doneIndex)).not.toContain('"rag_used"');
+    expect(joined.slice(doneIndex)).not.toContain('"citations"');
+  });
+
+  it('streamChat emits error without done on LLM failure', async () => {
+    mockStream.mockRejectedValue(new Error('LLM down'));
+
+    const mockInvoke = jest.fn().mockRejectedValue(new Error('LLM down'));
+    mockCreateChatGraph.mockReturnValueOnce({
+      invoke: mockInvoke,
+    } as never);
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    const service = createService();
+    const chunks: string[] = [];
+    await service.streamChat(
+      { messages: [{ role: ChatRole.User, content: 'Hi' }] },
+      (chunk) => chunks.push(chunk),
+    );
+
+    const joined = chunks.join('');
+    expect(joined).toContain('event: error');
+    expect(joined).not.toContain('event: done');
+  });
+
+  it('streamChat omits done when aborted mid-stream', async () => {
+    async function* tokenStream() {
+      yield { content: 'partial' };
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      yield { content: 'more' };
+    }
+    mockStream.mockResolvedValue(tokenStream());
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    const service = createService();
+    const controller = new AbortController();
+    const chunks: string[] = [];
+
+    const streamPromise = service.streamChat(
+      { messages: [{ role: ChatRole.User, content: 'Hi' }] },
+      (chunk) => chunks.push(chunk),
+      controller.signal,
+    );
+
+    setTimeout(() => controller.abort(), 10);
+    await streamPromise;
+
+    const joined = chunks.join('');
+    expect(joined).toContain('event: meta');
+    expect(joined).not.toContain('event: done');
+    expect(joined).not.toContain('event: error');
+  });
+
+  it('streamChat puts rag metadata only in meta event', async () => {
     async function* tokenStream() {
       yield { content: 'Hel' };
       yield { content: 'lo' };
@@ -244,10 +342,9 @@ describe('ChatService', () => {
     const joined = chunks.join('');
     expect(joined).toContain('event: meta');
     expect(joined).toContain('"rag_used":true');
+    expect(joined).toContain('"citations"');
     expect(joined).toContain('event: delta');
-    expect(joined).toContain('"content":"Hel"');
     expect(joined).toContain('event: done');
-    expect(joined).toContain('"content":"Hello"');
   });
 
   it('streamChat meta reflects rag_used false on RAG fallback', async () => {

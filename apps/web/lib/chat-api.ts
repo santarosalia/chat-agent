@@ -1,3 +1,8 @@
+/**
+ * POST /chat/stream must use fetch + ReadableStream SSE parsing.
+ * EventSource is GET-only and cannot send the chat request body.
+ */
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -15,14 +20,24 @@ export interface ChatResponse {
   citations?: Citation[];
 }
 
+export interface StreamMeta {
+  rag_used: boolean;
+  citations?: Citation[];
+}
+
+export interface StreamDone {
+  message?: { role: 'assistant'; content: string };
+}
+
 export interface StreamHandlers {
-  onMeta?: (data: { rag_used: boolean; citations?: Citation[] }) => void;
+  onMeta?: (data: StreamMeta) => void;
   onDelta?: (content: string) => void;
-  onDone?: (data: ChatResponse) => void;
+  onDone?: (data: StreamDone) => void;
   onError?: (message: string) => void;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3000';
 
 export interface ChatRequestBody {
   messages: ChatMessage[];
@@ -31,7 +46,7 @@ export interface ChatRequestBody {
 }
 
 export async function postChat(body: ChatRequestBody): Promise<ChatResponse> {
-  const response = await fetch(`${API_URL}/chat`, {
+  const response = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -48,11 +63,13 @@ export async function postChat(body: ChatRequestBody): Promise<ChatResponse> {
 export async function postChatStream(
   body: ChatRequestBody,
   handlers: StreamHandlers,
+  signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`${API_URL}/chat/stream`, {
+  const response = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!response.ok) {
@@ -124,7 +141,9 @@ function parseSseBlock(block: string, handlers: StreamHandlers): void {
       handlers.onDelta?.(String(payload.content ?? ''));
       break;
     case 'done':
-      handlers.onDone?.(payload as unknown as ChatResponse);
+      handlers.onDone?.({
+        message: payload.message as StreamDone['message'],
+      });
       break;
     case 'error':
       handlers.onError?.(String(payload.message ?? 'Unknown stream error'));

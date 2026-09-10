@@ -16,7 +16,7 @@ import {
   chunkString,
   extractStreamChunkContent,
   formatSseEvent,
-  SseDonePayload,
+  isAbortError,
   SseMetaPayload,
 } from './sse';
 
@@ -57,19 +57,36 @@ export class ChatService {
   async streamChat(
     request: ChatRequestDto,
     write: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<void> {
     try {
       const prepared = await this.prepareChatInput(request);
+      if (signal?.aborted) {
+        return;
+      }
+
       write(formatSseEvent('meta', this.buildMetaPayload(prepared.retrieval)));
 
       const langChainMessages = toLangChainMessages(prepared.truncatedMessages);
       const fullContent = await this.streamLlmContent(
         langChainMessages,
         write,
+        signal,
       );
 
-      write(formatSseEvent('done', this.buildDonePayload(prepared.retrieval, fullContent)));
+      if (signal?.aborted) {
+        return;
+      }
+
+      write(
+        formatSseEvent('done', {
+          message: { role: 'assistant', content: fullContent },
+        }),
+      );
     } catch (error) {
+      if (signal?.aborted || isAbortError(error)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       write(formatSseEvent('error', { message }));
     }
@@ -121,28 +138,18 @@ export class ChatService {
     return payload;
   }
 
-  private buildDonePayload(
-    retrieval: RagRetrieveResult,
-    content: string,
-  ): SseDonePayload {
-    const payload: SseDonePayload = {
-      message: { role: 'assistant', content },
-      rag_used: retrieval.ragUsed,
-    };
-    if (retrieval.ragUsed) {
-      payload.citations = retrieval.citations;
-    }
-    return payload;
-  }
-
   private async streamLlmContent(
     langChainMessages: ReturnType<typeof toLangChainMessages>,
     write: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<string> {
     try {
-      const stream = await this.model.stream(langChainMessages);
+      const stream = await this.model.stream(langChainMessages, { signal });
       let fullContent = '';
       for await (const chunk of stream) {
+        if (signal?.aborted) {
+          throw new DOMException('Stream aborted', 'AbortError');
+        }
         const content = extractStreamChunkContent(chunk.content);
         if (content) {
           fullContent += content;
@@ -152,13 +159,22 @@ export class ChatService {
       if (fullContent.length > 0) {
         return fullContent;
       }
-    } catch {
+    } catch (error) {
+      if (isAbortError(error) || signal?.aborted) {
+        throw error;
+      }
       // LangGraph single-node path does not expose token streaming; fall back below.
     }
 
-    const result = await this.graph.invoke({ messages: langChainMessages });
+    const result = await this.graph.invoke(
+      { messages: langChainMessages },
+      { signal },
+    );
     const fullContent = result.response ?? '';
     for (const content of chunkString(fullContent, STREAM_FALLBACK_CHUNK_SIZE)) {
+      if (signal?.aborted) {
+        throw new DOMException('Stream aborted', 'AbortError');
+      }
       write(formatSseEvent('delta', { content }));
     }
     return fullContent;

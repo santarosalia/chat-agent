@@ -19,8 +19,8 @@ export default function HomePage() {
   const [ragUsed, setRagUsed] = useState<boolean | null>(null);
   const [citations, setCitations] = useState<Citation[]>([]);
 
-  const apiUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000',
+  const apiBase = useMemo(
+    () => process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3000',
     [],
   );
 
@@ -64,9 +64,9 @@ export default function HomePage() {
             setAssistantText((prev) => prev + content);
           },
           onDone: (data) => {
-            setAssistantText(data.message.content);
-            setRagUsed(data.rag_used);
-            setCitations(data.citations ?? []);
+            if (data.message?.content) {
+              setAssistantText(data.message.content);
+            }
           },
           onError: (message) => {
             setError(message);
@@ -93,7 +93,7 @@ export default function HomePage() {
     <main>
       <h1>chat-agent test UI</h1>
       <p className="subtitle">
-        로컬 API({apiUrl})용 테스트 전용 UI — 로그인·히스토리 저장 없음
+        로컬 API({apiBase})용 테스트 전용 UI — 로그인·히스토리 저장 없음
       </p>
 
       <form className="panel" onSubmit={handleSubmit}>
@@ -136,7 +136,7 @@ export default function HomePage() {
               checked={useStream}
               onChange={(event) => setUseStream(event.target.checked)}
             />
-            POST /chat/stream (SSE)
+            POST /chat/stream (fetch + SSE parser)
           </label>
           <button type="submit" disabled={loading}>
             {loading ? 'Sending…' : useStream ? 'Stream chat' : 'Send chat'}

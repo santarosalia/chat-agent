@@ -12,10 +12,9 @@ export interface SseDeltaPayload {
   content: string;
 }
 
+/** Completion signal only — RAG fields live in `meta`. */
 export interface SseDonePayload {
-  message: ChatResponseMessage;
-  rag_used: boolean;
-  citations?: RagCitation[];
+  message?: ChatResponseMessage;
 }
 
 export interface SseErrorPayload {
@@ -72,4 +71,16 @@ export function extractStreamChunkContent(content: unknown): string {
     return '';
   }
   return String(content);
+}
+
+export function isAbortError(error: unknown): boolean {
+  if (error instanceof Error && error.name === 'AbortError') {
+    return true;
+  }
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as { name: string }).name === 'AbortError'
+  );
 }
