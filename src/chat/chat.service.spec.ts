@@ -51,8 +51,6 @@ describe('ChatService', () => {
           OPENAI_BASE_URL: 'http://llm.local/v1',
           OPENAI_MODEL: 'test-model',
           RAG_BASE: 'http://rag.local',
-          RAG_GROUP_ID: 'default-group',
-          RAG_TOP_K: '5',
           ...extra,
         };
         return values[key];
@@ -85,17 +83,43 @@ describe('ChatService', () => {
     const service = createService();
     const response = await service.chat({
       messages: [{ role: ChatRole.User, content: 'What is NestJS?' }],
+      group_id: 'team-a',
     });
 
     expect(global.fetch).toHaveBeenCalledWith(
       'http://rag.local/v1/retrieve',
       expect.objectContaining({ method: 'POST' }),
     );
+    expect(JSON.parse(
+      (global.fetch as jest.Mock).mock.calls[0][1].body as string,
+    )).toMatchObject({
+      group_id: 'team-a',
+      top_k: 5,
+    });
     expect(response).toEqual({
       message: { role: 'assistant', content: 'Assistant reply' },
       rag_used: true,
       citations: [{ filename: 'doc.pdf', page: 1, snippet: 'info' }],
     });
+  });
+
+  it('passes request top_k to retrieve when provided', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    const service = createService();
+    await service.chat({
+      messages: [{ role: ChatRole.User, content: 'Hello' }],
+      group_id: 'team-a',
+      top_k: 10,
+    });
+
+    expect(JSON.parse(
+      (global.fetch as jest.Mock).mock.calls[0][1].body as string,
+    ).top_k).toBe(10);
   });
 
   it('returns rag_used false without citations when RAG API returns empty citations', async () => {
@@ -134,6 +158,7 @@ describe('ChatService', () => {
     const service = createService();
     const response = await service.chat({
       messages: [{ role: ChatRole.User, content: 'What is NestJS?' }],
+      group_id: 'team-a',
     });
 
     expect(response.rag_used).toBe(false);

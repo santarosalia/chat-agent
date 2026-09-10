@@ -14,16 +14,16 @@ export class RagRetrieveClient {
 
   constructor(private readonly config: ConfigService) {}
 
-  async retrieve(query: string, groupId?: string): Promise<RagRetrieveResult> {
+  async retrieve(
+    query: string,
+    groupId: string,
+    topK = 5,
+  ): Promise<RagRetrieveResult> {
     const ragBase = this.config.get<string>('RAG_BASE');
     if (!ragBase) {
       this.logger.warn('RAG_BASE is not configured; skipping retrieval');
       return emptyResult();
     }
-
-    const resolvedGroupId =
-      groupId ?? this.config.get<string>('RAG_GROUP_ID') ?? undefined;
-    const topK = this.parseTopK(this.config.get<string>('RAG_TOP_K'));
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), RETRIEVE_TIMEOUT_MS);
@@ -35,7 +35,7 @@ export class RagRetrieveClient {
         body: JSON.stringify({
           query,
           mode: 'hybrid',
-          group_id: resolvedGroupId,
+          group_id: groupId,
           top_k: topK,
           rerank: true,
           snippet: true,
@@ -77,10 +77,6 @@ export class RagRetrieveClient {
     }
   }
 
-  private parseTopK(value: string | undefined): number {
-    const parsed = Number(value ?? '5');
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 5;
-  }
 }
 
 function emptyResult(): RagRetrieveResult {

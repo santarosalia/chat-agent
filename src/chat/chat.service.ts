@@ -4,7 +4,10 @@ import { ChatOpenAI } from '@langchain/openai';
 import { injectRetrievedContext } from '../rag/rag-context.injector';
 import { RagRetrieveClient } from '../rag/rag-retrieve.client';
 import { createChatGraph, toLangChainMessages } from './chat.graph';
-import { ChatRequestDto } from './dto/chat-request.dto';
+import {
+  ChatRequestDto,
+  DEFAULT_RAG_TOP_K,
+} from './dto/chat-request.dto';
 import { ChatResponseDto } from './dto/chat-response.dto';
 
 @Injectable()
@@ -31,6 +34,7 @@ export class ChatService {
     const retrieval = await this.ragClient.retrieve(
       retrieveQuery,
       request.group_id,
+      request.top_k ?? DEFAULT_RAG_TOP_K,
     );
 
     const messagesForLlm = retrieval.ragUsed

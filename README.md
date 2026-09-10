@@ -32,8 +32,6 @@ Interactive OpenAPI docs are at [http://localhost:3000/docs](http://localhost:30
 | `OPENAI_BASE_URL` | Base URL for the LLM API (e.g. `https://api.openai.com/v1`) |
 | `OPENAI_MODEL` | Model name (e.g. `gpt-4o-mini`) |
 | `RAG_BASE` | Base URL of the RAG retrieval service |
-| `RAG_GROUP_ID` | Default `group_id` when the request omits it |
-| `RAG_TOP_K` | Number of chunks to retrieve (default `5`) |
 | `PORT` | HTTP port (default `3000`) |
 
 ## API
@@ -53,9 +51,12 @@ Interactive OpenAPI docs are at [http://localhost:3000/docs](http://localhost:30
   "messages": [
     { "role": "user", "content": "What is in the handbook?" }
   ],
-  "group_id": "optional-group-id"
+  "group_id": "hr-docs",
+  "top_k": 5
 }
 ```
+
+`group_id` is required. `top_k` is optional and defaults to `5` when omitted.
 
 **Response (RAG used)**
 
@@ -92,6 +93,8 @@ When `rag_used` is `false`, `citations` is omitted.
 
 ## RAG integration
 
+RAG uses `POST /v1/retrieve` only; the final answer LLM runs in chat-agent. Delegating to RAG `/v1/query` is out of scope (contract A).
+
 For each chat request, the service uses the **content of the last `user` message** as the retrieval query.
 
 It calls:
@@ -104,8 +107,8 @@ POST {RAG_BASE}/v1/retrieve
 {
   "query": "<last user message>",
   "mode": "hybrid",
-  "group_id": "<request group_id or RAG_GROUP_ID>",
-  "top_k": 5,
+  "group_id": "<request group_id>",
+  "top_k": "<request top_k or 5>",
   "rerank": true,
   "snippet": true,
   "content": false

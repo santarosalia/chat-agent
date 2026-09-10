@@ -22,21 +22,23 @@ export class ChatController {
   @ApiBody({
     type: ChatRequestDto,
     examples: {
-      withGroupId: {
-        summary: 'With optional group_id',
+      withTopK: {
+        summary: 'With explicit top_k',
         value: {
           messages: [
             { role: 'user', content: 'What is in the employee handbook?' },
           ],
           group_id: 'hr-docs',
+          top_k: 10,
         },
       },
-      withoutGroupId: {
-        summary: 'Without group_id (uses RAG_GROUP_ID default)',
+      defaultTopK: {
+        summary: 'Default top_k (5 when omitted)',
         value: {
           messages: [
             { role: 'user', content: 'What is in the employee handbook?' },
           ],
+          group_id: 'hr-docs',
         },
       },
     },
