@@ -1,0 +1,26 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["chat_agent"]
+}
+
+model Message {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId String    @map("session_id") @db.Uuid
+  userId    String?   @map("user_id")
+  role      String
+  content   String
+  ragUsed   Boolean?  @map("rag_used")
+  citations Json?     @db.JsonB
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@index([sessionId, createdAt], map: "messages_session_id_created_at_idx")
+  @@index([userId, sessionId, createdAt], map: "messages_user_id_session_id_created_at_idx")
+  @@map("messages")
+  @@schema("chat_agent")
+}

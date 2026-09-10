@@ -2,7 +2,9 @@ import { Body, Controller, Post, Req, Res } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBody,
+  ApiConflictResponse,
   ApiExtraModels,
+  ApiGoneResponse,
   ApiOkResponse,
   ApiOperation,
   ApiProduces,
@@ -44,6 +46,13 @@ export class ChatController {
         },
       },
     },
+  })
+  @ApiConflictResponse({
+    description:
+      'session_id에 고정된 user_id와 요청 user_id가 불일치하거나 생략됨 (409)',
+  })
+  @ApiGoneResponse({
+    description: '소프트 삭제된 session_id에 append 시도 (410)',
   })
   @ApiBadRequestResponse({
     description: '요청 유효성 검사 실패 (예: 빈 messages, 잘못된 top_k)',
@@ -105,6 +114,13 @@ export class ChatController {
       'retrieve → inject → truncate → LLM 파이프라인은 POST /chat과 동일합니다. 이벤트 순서: meta → delta* → done (실패 시 error, done 없음).',
   })
   @ApiBody({ type: ChatRequestDto })
+  @ApiConflictResponse({
+    description:
+      'session_id에 고정된 user_id와 요청 user_id가 불일치하거나 생략됨 (409)',
+  })
+  @ApiGoneResponse({
+    description: '소프트 삭제된 session_id에 append 시도 (410)',
+  })
   @ApiProduces('text/event-stream')
   @ApiOkResponse({
     description: 'SSE 스트림 (event: meta | delta | done | error)',
@@ -114,6 +130,8 @@ export class ChatController {
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
+    await this.chatService.ensureHistoryAllowed(body);
+
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
