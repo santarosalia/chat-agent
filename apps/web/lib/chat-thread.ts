@@ -29,7 +29,12 @@ export function toChatRequestMessages(thread: ThreadMessage[]): ChatMessage[] {
 
 export function buildChatRequest(
   thread: ThreadMessage[],
-  options: { groupId: string; topK: string },
+  options: {
+    groupId: string;
+    topK: string;
+    sessionId?: string;
+    userId?: string;
+  },
 ): ChatRequestBody {
   const body: ChatRequestBody = {
     messages: toChatRequestMessages(thread),
@@ -42,6 +47,14 @@ export function buildChatRequest(
   const parsedTopK = Number(options.topK);
   if (options.topK.trim() && Number.isInteger(parsedTopK) && parsedTopK >= 1) {
     body.top_k = parsedTopK;
+  }
+
+  if (options.sessionId?.trim()) {
+    body.session_id = options.sessionId.trim();
+  }
+
+  if (options.userId?.trim()) {
+    body.user_id = options.userId.trim();
   }
 
   return body;

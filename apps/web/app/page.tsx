@@ -7,7 +7,12 @@ import {
   useRef,
   useState,
 } from 'react';
-import { postChat, postChatStream } from '@/lib/chat-api';
+import {
+  ChatApiError,
+  deleteSession,
+  postChat,
+  postChatStream,
+} from '@/lib/chat-api';
 import {
   buildChatRequest,
   ThreadMessage,
@@ -28,9 +33,13 @@ export default function HomePage() {
   const [userInput, setUserInput] = useState('');
   const [groupId, setGroupId] = useState('');
   const [topK, setTopK] = useState('');
+  const [sessionId, setSessionId] = useState('');
+  const [userId, setUserId] = useState('');
+  const [deleteStatus, setDeleteStatus] = useState<string | null>(null);
   const [useStream, setUseStream] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [deletingSession, setDeletingSession] = useState(false);
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -83,7 +92,12 @@ export default function HomePage() {
     };
     const assistantId = createId();
     const history = [...messages, userMessage];
-    const body = buildChatRequest(history, { groupId, topK });
+    const body = buildChatRequest(history, {
+      groupId,
+      topK,
+      sessionId,
+      userId,
+    });
 
     setUserInput('');
     setMessages([
@@ -161,9 +175,11 @@ export default function HomePage() {
         });
       } else {
         const message =
-          submitError instanceof Error
+          submitError instanceof ChatApiError
             ? submitError.message
-            : '요청에 실패했습니다.';
+            : submitError instanceof Error
+              ? submitError.message
+              : '요청에 실패했습니다.';
         patchMessage(assistantId, {
           streaming: false,
           error: message,
@@ -196,6 +212,43 @@ export default function HomePage() {
 
   function stopGenerating() {
     abortRef.current?.abort();
+  }
+
+  function startNewSession() {
+    setSessionId(createId());
+    setDeleteStatus(null);
+  }
+
+  function clearSessionId() {
+    setSessionId('');
+    setDeleteStatus(null);
+  }
+
+  async function handleDeleteSession() {
+    const id = sessionId.trim();
+    if (!id || deletingSession) {
+      return;
+    }
+
+    setDeletingSession(true);
+    setDeleteStatus(null);
+
+    try {
+      const status = await deleteSession(id);
+      setDeleteStatus(
+        status === 204
+          ? `DELETE /sessions/${id} → HTTP ${status} (세션 ID 유지 — 다음 전송 시 410 확인 가능)`
+          : `DELETE /sessions/${id} → HTTP ${status}`,
+      );
+    } catch (deleteError) {
+      const message =
+        deleteError instanceof Error
+          ? deleteError.message
+          : '세션 삭제 요청에 실패했습니다.';
+      setDeleteStatus(message);
+    } finally {
+      setDeletingSession(false);
+    }
   }
 
   return (
@@ -315,37 +368,91 @@ export default function HomePage() {
 
       <form className="dock" onSubmit={handleSubmit}>
         {showSettings && (
-          <div className="settings">
-            <div className="field">
-              <label htmlFor="group-id">group_id</label>
-              <input
-                id="group-id"
-                type="text"
-                value={groupId}
-                onChange={(event) => setGroupId(event.target.value)}
-                placeholder="전체 코퍼스"
-              />
+          <>
+            <div className="settings">
+              <div className="field">
+                <label htmlFor="group-id">group_id</label>
+                <input
+                  id="group-id"
+                  type="text"
+                  value={groupId}
+                  onChange={(event) => setGroupId(event.target.value)}
+                  placeholder="전체 코퍼스"
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="top-k">top_k</label>
+                <input
+                  id="top-k"
+                  type="number"
+                  min={1}
+                  value={topK}
+                  onChange={(event) => setTopK(event.target.value)}
+                  placeholder="5"
+                />
+              </div>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={useStream}
+                  onChange={(event) => setUseStream(event.target.checked)}
+                />
+                스트림
+              </label>
             </div>
-            <div className="field">
-              <label htmlFor="top-k">top_k</label>
-              <input
-                id="top-k"
-                type="number"
-                min={1}
-                value={topK}
-                onChange={(event) => setTopK(event.target.value)}
-                placeholder="5"
-              />
+            <div className="settings history-settings">
+              <div className="field session-field">
+                <label htmlFor="session-id">session_id</label>
+                <input
+                  id="session-id"
+                  type="text"
+                  value={sessionId}
+                  onChange={(event) => {
+                    setSessionId(event.target.value);
+                    setDeleteStatus(null);
+                  }}
+                  placeholder="비우면 기록 없음"
+                  spellCheck={false}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="user-id">user_id</label>
+                <input
+                  id="user-id"
+                  type="text"
+                  value={userId}
+                  onChange={(event) => setUserId(event.target.value)}
+                  placeholder="선택"
+                />
+              </div>
+              <div className="session-actions">
+                <button type="button" className="ghost" onClick={startNewSession}>
+                  새 세션
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={clearSessionId}
+                  disabled={!sessionId}
+                >
+                  세션 비우기
+                </button>
+                <button
+                  type="button"
+                  className="ghost danger"
+                  onClick={() => void handleDeleteSession()}
+                  disabled={!sessionId.trim() || deletingSession}
+                >
+                  {deletingSession ? '삭제 중…' : '세션 삭제'}
+                </button>
+              </div>
             </div>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={useStream}
-                onChange={(event) => setUseStream(event.target.checked)}
-              />
-              스트림
-            </label>
-          </div>
+            {deleteStatus && (
+              <p className="session-status" role="status">
+                {deleteStatus}
+              </p>
+            )}
+          </>
         )}
 
         <div className="composer">
