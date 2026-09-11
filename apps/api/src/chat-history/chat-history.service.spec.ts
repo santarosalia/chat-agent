@@ -78,24 +78,31 @@ describe('ChatHistoryService', () => {
         citations: [{ filename: 'a.pdf', page: 1, snippet: 'ctx' }],
       });
 
-      expect(prisma.message.createMany).toHaveBeenCalledWith({
-        data: [
-          {
-            sessionId,
-            userId: 'user-a',
-            role: 'user',
-            content: 'Hello',
-          },
-          {
-            sessionId,
-            userId: 'user-a',
-            role: 'assistant',
-            content: 'Hi there',
-            ragUsed: true,
-            citations: [{ filename: 'a.pdf', page: 1, snippet: 'ctx' }],
-          },
-        ],
-      });
+      const rows = prisma.message.createMany.mock.calls[0][0].data as Array<{
+        role: string;
+        content: string;
+        createdAt: Date;
+      }>;
+
+      expect(rows).toEqual([
+        expect.objectContaining({
+          sessionId,
+          userId: 'user-a',
+          role: 'user',
+          content: 'Hello',
+        }),
+        expect.objectContaining({
+          sessionId,
+          userId: 'user-a',
+          role: 'assistant',
+          content: 'Hi there',
+          ragUsed: true,
+          citations: [{ filename: 'a.pdf', page: 1, snippet: 'ctx' }],
+        }),
+      ]);
+      expect(rows[1].createdAt.getTime()).toBeGreaterThan(
+        rows[0].createdAt.getTime(),
+      );
     });
   });
 
@@ -164,7 +171,7 @@ describe('ChatHistoryService', () => {
 
       expect(prisma.message.findMany).toHaveBeenCalledWith({
         where: { sessionId, deletedAt: null },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: {
           role: true,
           content: true,
@@ -196,7 +203,7 @@ describe('ChatHistoryService', () => {
 
       expect(prisma.message.findMany).toHaveBeenCalledWith({
         where: { sessionId, deletedAt: null },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: { role: true, content: true },
       });
     });

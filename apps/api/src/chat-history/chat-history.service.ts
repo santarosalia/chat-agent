@@ -58,12 +58,16 @@ export class ChatHistoryService {
   async appendTurn(input: AppendTurnInput): Promise<void> {
     await this.assertCanAppend(input.sessionId, input.userId);
 
+    const userCreatedAt = new Date();
+    const assistantCreatedAt = new Date(userCreatedAt.getTime() + 1);
+
     const assistantRow: Prisma.MessageCreateManyInput = {
       sessionId: input.sessionId,
       userId: input.userId ?? null,
       role: ChatRole.Assistant,
       content: input.assistantContent,
       ragUsed: input.ragUsed,
+      createdAt: assistantCreatedAt,
     };
     if (input.ragUsed && input.citations !== undefined) {
       assistantRow.citations = input.citations as Prisma.InputJsonValue;
@@ -75,6 +79,7 @@ export class ChatHistoryService {
         userId: input.userId ?? null,
         role: ChatRole.User,
         content: input.userContent,
+        createdAt: userCreatedAt,
       },
       assistantRow,
     ];
@@ -100,7 +105,7 @@ export class ChatHistoryService {
 
     const rows = await this.prisma.message.findMany({
       where: { sessionId, deletedAt: null },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: {
         role: true,
         content: true,
@@ -127,7 +132,7 @@ export class ChatHistoryService {
   async listActiveMessages(sessionId: string): Promise<ChatMessageDto[]> {
     const rows = await this.prisma.message.findMany({
       where: { sessionId, deletedAt: null },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { role: true, content: true },
     });
 
