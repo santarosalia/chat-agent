@@ -15,7 +15,7 @@ ADR 0006은 append-only 저장만 두고 조회 API를 두지 않았습니다. �
 - **`session_id`가 있으면** 요청 `messages`는 **이번 턴**(보통 마지막 `user` 하나)입니다. 서버는 저장된 user/assistant를 앞에 붙인 뒤 retrieve → inject → truncate → LLM을 실행합니다. 요청에 여분 히스토리가 있어도 **마지막 user만** 사용합니다.
 - **`session_id`가 없으면** 기록 조회·저장을 건너뛰고, 요청 `messages`가 LLM 입력입니다(테스트 UI는 이번 user만 보내므로 멀티턴 맥락 없음).
 
-retrieve 쿼리는 기존처럼 요청의 **마지막 user 원문**입니다 ([ADR 0001](./0001-contract-a-retrieve-only.md)).
+retrieve 쿼리는 대화가 있으면 리라이트한 독립 질문입니다 ([ADR 0008](./0008-retrieve-query-rewrite.md)). 첫 턴은 이번 user 원문입니다.
 
 ### `GET /sessions/:id`
 
@@ -25,7 +25,7 @@ retrieve 쿼리는 기존처럼 요청의 **마지막 user 원문**입니다 ([A
 
 ### 파이프라인 (`POST /chat`, `POST /chat/stream`)
 
-`session_id`가 있을 때: **append 가능 여부 검사 → DB 대화 로드 → retrieve → inject → truncate → LLM → 성공 시 이번 user+assistant append**.
+`session_id`가 있을 때: **append 가능 여부 검사 → DB 대화 로드 → (필요 시) retrieve 쿼리 리라이트 → retrieve → inject → truncate → LLM → 성공 시 이번 user+assistant append**.
 
 삭제된 세션(410)·고정 `user_id` 불일치(409)는 기존 ADR 0006과 같습니다. 그 외 persist/로드 DB 오류는 best-effort(채팅은 계속, 기록만 건너뜀).
 

@@ -13,7 +13,7 @@
 - **항상 유지:** 모든 `system` 메시지, RAG inject block(`[Retrieved context]`로 시작하는 retrieved context), **마지막 `user` 메시지**.
 - 위 always-keep 집합을 제외한 나머지 메시지 중 **앞(오래된)쪽부터** 제거하여 총 개수 ≤ N.
 - v1에서는 **중간 요약(summarization) 없음**.
-- Retrieve query는 요청 `messages`의 **마지막 user 메시지 원문** 그대로 사용 (truncate 미적용; 리라이트·히스토리 합치기 금지 — [ADR 0001](./0001-contract-a-retrieve-only.md)).
+- Retrieve query는 대화가 있으면 리라이트된 독립 질문, 첫 턴은 마지막 user 원문 ([ADR 0008](./0008-retrieve-query-rewrite.md)). truncate는 retrieve 쿼리가 아니라 LLM 입력에만 적용한다.
 
 ## Consequences
 
@@ -21,4 +21,4 @@
 - 시스템 프롬프트, RAG 검색 결과, 최신 사용자 질문은 truncate로 잘리지 않는다.
 - 오래된 user/assistant 턴은 우선 제거되어 최근 맥락이 남는다.
 - always-keep 메시지만으로 N을 초과하면 v1에서는 추가 제거하지 않는다 (요약도 없음).
-- retrieve 품질은 전체 대화가 아닌 마지막 user 메시지에 의존한다 (기존 동작 유지).
+- retrieve 품질은 리라이트된 검색 질문(또는 첫 턴의 마지막 user)에 의존한다 ([ADR 0008](./0008-retrieve-query-rewrite.md)).

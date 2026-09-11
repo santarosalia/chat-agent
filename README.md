@@ -83,7 +83,7 @@ LLM 프로토콜은 OpenAI 호환을 유지하며, 설정용 환경 변수 이�
 
 ### RAG
 
-Contract A: `POST {RAG_BASE}/v1/retrieve`만 사용. 폴백·truncate는 [ADR 0003](./docs/adr/0003-rag-fallback.md), [ADR 0004](./docs/adr/0004-context-truncate.md).
+Contract A: `POST {RAG_BASE}/v1/retrieve`만 사용. 대화가 있으면 retrieve 전에 검색 쿼리를 리라이트합니다 ([ADR 0008](./docs/adr/0008-retrieve-query-rewrite.md)). 폴백·truncate는 [ADR 0003](./docs/adr/0003-rag-fallback.md), [ADR 0004](./docs/adr/0004-context-truncate.md).
 
 ## 개발
 

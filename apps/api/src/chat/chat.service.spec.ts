@@ -11,6 +11,7 @@ import { LLM_INPUT_MAX_MESSAGES } from './context-truncate';
 import { ChatHistoryService } from '../chat-history/chat-history.service';
 import { ChatService, getLastUserMessageContent } from './chat.service';
 import { ChatRole } from './dto/chat-message.dto';
+import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
 
 const mockStream = jest.fn();
 
@@ -91,11 +92,31 @@ describe('ChatService', () => {
     };
   }
 
-  function createService(config: ConfigService = createConfig()) {
+  function createRewriterMock(
+    rewritten?: string,
+  ): Pick<RetrieveQueryRewriter, 'rewrite'> {
+    return {
+      rewrite: jest.fn(async (messages) => {
+        if (rewritten != null) {
+          return rewritten;
+        }
+        const last = [...messages]
+          .reverse()
+          .find((message) => message.role === ChatRole.User);
+        return last?.content ?? '';
+      }),
+    };
+  }
+
+  function createService(
+    config: ConfigService = createConfig(),
+    rewriter: Pick<RetrieveQueryRewriter, 'rewrite'> = createRewriterMock(),
+  ) {
     return new ChatService(
       config,
       new RagRetrieveClient(config),
       createChatHistoryMock() as ChatHistoryService,
+      rewriter as RetrieveQueryRewriter,
     );
   }
 
@@ -176,6 +197,42 @@ describe('ChatService', () => {
     expect(JSON.parse(
       (global.fetch as jest.Mock).mock.calls[0][1].body as string,
     ).top_k).toBe(10);
+  });
+
+  it('retrieves with a rewritten query after loading session history', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    const history = createChatHistoryMock();
+    (history.listActiveMessages as jest.Mock).mockResolvedValue([
+      { role: ChatRole.User, content: '직원 핸드북에는 무엇이 있나요?' },
+      { role: ChatRole.Assistant, content: '연차 규정이 있습니다.' },
+    ]);
+    const rewriter = createRewriterMock('직원 핸드북 연차 일수');
+    const service = new ChatService(
+      createConfig(),
+      new RagRetrieveClient(createConfig()),
+      history as ChatHistoryService,
+      rewriter as RetrieveQueryRewriter,
+    );
+
+    await service.chat({
+      session_id: '550e8400-e29b-41d4-a716-446655440000',
+      messages: [{ role: ChatRole.User, content: '그건 며칠인가요?' }],
+    });
+
+    expect(rewriter.rewrite).toHaveBeenCalledWith([
+      { role: ChatRole.User, content: '직원 핸드북에는 무엇이 있나요?' },
+      { role: ChatRole.Assistant, content: '연차 규정이 있습니다.' },
+      { role: ChatRole.User, content: '그건 며칠인가요?' },
+    ]);
+    expect(
+      JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body as string)
+        .query,
+    ).toBe('직원 핸드북 연차 일수');
   });
 
   it('returns rag_used false without citations when RAG API returns empty citations', async () => {

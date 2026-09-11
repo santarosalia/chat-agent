@@ -11,6 +11,7 @@ import {
   getLastUserMessageContentForHistory,
 } from './chat.service';
 import { ChatRole } from './dto/chat-message.dto';
+import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
 
 const mockStream = jest.fn();
 
@@ -58,6 +59,17 @@ describe('ChatService chat history integration', () => {
     } as ConfigService;
   }
 
+  function createRewriter(): RetrieveQueryRewriter {
+    return {
+      rewrite: jest.fn(async (messages: Array<{ role: string; content: string }>) => {
+        const last = [...messages]
+          .reverse()
+          .find((message) => message.role === ChatRole.User);
+        return last?.content ?? '';
+      }),
+    } as unknown as RetrieveQueryRewriter;
+  }
+
   function createService() {
     chatHistory = {
       assertCanAppend: jest.fn().mockResolvedValue(undefined),
@@ -68,6 +80,7 @@ describe('ChatService chat history integration', () => {
       createConfig(),
       new RagRetrieveClient(createConfig()),
       chatHistory as unknown as ChatHistoryService,
+      createRewriter(),
     );
   }
 
@@ -187,6 +200,7 @@ describe('ChatService chat history integration', () => {
       createConfig(),
       new RagRetrieveClient(createConfig()),
       chatHistory as unknown as ChatHistoryService,
+      createRewriter(),
     );
 
     global.fetch = jest.fn();
@@ -279,6 +293,7 @@ describe('ChatService chat history integration', () => {
       createConfig(),
       new RagRetrieveClient(createConfig()),
       chatHistory as unknown as ChatHistoryService,
+      createRewriter(),
     );
 
     const response = await service.chat({
@@ -311,6 +326,7 @@ describe('ChatService chat history integration', () => {
       createConfig(),
       new RagRetrieveClient(createConfig()),
       chatHistory as unknown as ChatHistoryService,
+      createRewriter(),
     );
 
     const chunks: string[] = [];
@@ -345,6 +361,7 @@ describe('ChatService chat history integration', () => {
       createConfig(),
       new RagRetrieveClient(createConfig()),
       chatHistory as unknown as ChatHistoryService,
+      createRewriter(),
     );
 
     const response = await service.chat({
@@ -371,6 +388,7 @@ describe('ChatService chat history integration', () => {
       createConfig(),
       new RagRetrieveClient(createConfig()),
       chatHistory as unknown as ChatHistoryService,
+      createRewriter(),
     );
 
     global.fetch = jest.fn();

@@ -25,7 +25,7 @@ pnpm workspace로 재구성합니다.
 
 - **`POST /chat`**: 기존과 동일한 **비스트리밍 JSON** 계약 (`message`, `rag_used`, 선택적 `citations`). **변경 없음.**
 - **`POST /chat/stream`**: `Content-Type: text/event-stream`. 요청 본문은 `/chat`과 동일(`ChatRequestDto`).
-- 두 엔드포인트 모두 **동일 파이프라인**: **(선택) 세션 검사·DB 대화 로드 → retrieve → inject → truncate(ADR 0004) → LLM → (선택) append**. 세션 로드는 [ADR 0007](./0007-server-owned-session-context.md).
+- 두 엔드포인트 모두 **동일 파이프라인**: **(선택) 세션 검사·DB 대화 로드 → (필요 시) retrieve 쿼리 리라이트(ADR 0008) → retrieve → inject → truncate(ADR 0004) → LLM → (선택) append**. 세션 로드는 [ADR 0007](./0007-server-owned-session-context.md).
 
 ### SSE 이벤트 순서 및 스키마
 

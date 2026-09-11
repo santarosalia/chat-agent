@@ -19,6 +19,7 @@ import {
 import { ChatResponseDto } from './dto/chat-response.dto';
 import { ChatMessageDto, ChatRole } from './dto/chat-message.dto';
 import { formatLlmRequestLog } from './llm-request-log';
+import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
 import {
   chunkString,
   extractStreamChunkContent,
@@ -44,6 +45,7 @@ export class ChatService {
     private readonly config: ConfigService,
     private readonly ragClient: RagRetrieveClient,
     private readonly chatHistory: ChatHistoryService,
+    private readonly queryRewriter: RetrieveQueryRewriter,
   ) {
     this.model = new ChatOpenAI({
       apiKey: this.config.get<string>('VLLM_API_KEY'),
@@ -122,11 +124,11 @@ export class ChatService {
     request: ChatRequestDto,
     historyEnabled: boolean,
   ): Promise<PreparedChatInput> {
-    const retrieveQuery = getLastUserMessageContent(request.messages);
     const conversation = await this.resolveConversation(
       request,
       historyEnabled,
     );
+    const retrieveQuery = await this.queryRewriter.rewrite(conversation);
     const retrieval = await this.ragClient.retrieve(
       retrieveQuery,
       request.group_id,
