@@ -1,4 +1,9 @@
-import type { ChatMessage, ChatRequestBody, Citation } from './chat-api';
+import type {
+  ChatMessage,
+  ChatRequestBody,
+  Citation,
+  SessionHistoryMessage,
+} from './chat-api';
 
 export type ThreadMessage = {
   id: string;
@@ -27,6 +32,16 @@ export function toChatRequestMessages(thread: ThreadMessage[]): ChatMessage[] {
     }));
 }
 
+export function toLatestUserChatMessage(thread: ThreadMessage[]): ChatMessage[] {
+  const messages = toChatRequestMessages(thread);
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === 'user') {
+      return [messages[i]];
+    }
+  }
+  return [];
+}
+
 export function buildChatRequest(
   thread: ThreadMessage[],
   options: {
@@ -37,7 +52,7 @@ export function buildChatRequest(
   },
 ): ChatRequestBody {
   const body: ChatRequestBody = {
-    messages: toChatRequestMessages(thread),
+    messages: toLatestUserChatMessage(thread),
   };
 
   if (options.groupId.trim()) {
@@ -58,4 +73,24 @@ export function buildChatRequest(
   }
 
   return body;
+}
+
+const SESSION_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isSessionUuid(value: string): boolean {
+  return SESSION_UUID.test(value.trim());
+}
+
+export function sessionHistoryToThread(
+  sessionId: string,
+  messages: SessionHistoryMessage[],
+): ThreadMessage[] {
+  return messages.map((message, index) => ({
+    id: `${sessionId}:${index}`,
+    role: message.role,
+    content: message.content,
+    ragUsed: message.role === 'assistant' ? Boolean(message.rag_used) : undefined,
+    citations: message.citations,
+  }));
 }

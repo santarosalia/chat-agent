@@ -28,11 +28,23 @@ export class ChatController {
     type: ChatRequestDto,
     examples: {
       wholeCorpus: {
-        summary: '전체 코퍼스 검색 (group_id 없음)',
+        summary: '전체 코퍼스 검색 (group_id 없음, top_k는 적용)',
         value: {
           messages: [
             { role: 'user', content: '직원 핸드북에는 무엇이 있나요?' },
           ],
+          top_k: 5,
+        },
+      },
+      withSession: {
+        summary: '세션 히스토리는 서버가 조회, 요청은 이번 user만',
+        value: {
+          messages: [
+            { role: 'user', content: '이어서, 연차는 며칠인가요?' },
+          ],
+          session_id: '550e8400-e29b-41d4-a716-446655440000',
+          user_id: 'user-abc-123',
+          top_k: 5,
         },
       },
       withGroupId: {

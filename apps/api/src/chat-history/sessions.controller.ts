@@ -1,16 +1,56 @@
-import { Controller, Delete, HttpCode, Param, ParseUUIDPipe } from '@nestjs/common';
 import {
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+} from '@nestjs/common';
+import {
+  ApiExtraModels,
+  ApiGoneResponse,
   ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiTags,
 } from '@nestjs/swagger';
 import { ChatHistoryService } from './chat-history.service';
+import {
+  SessionHistoryAssistantMessageSchema,
+  SessionHistorySchema,
+  SessionHistoryUserMessageSchema,
+} from './dto/session-history.dto';
 
 @ApiTags('v1')
+@ApiExtraModels(
+  SessionHistoryUserMessageSchema,
+  SessionHistoryAssistantMessageSchema,
+)
 @Controller('sessions')
 export class SessionsController {
   constructor(private readonly chatHistory: ChatHistoryService) {}
+
+  @Get(':id')
+  @ApiOperation({
+    summary: '세션 채팅 기록 조회',
+    description:
+      'deleted_at이 없는 메시지를 created_at 순으로 반환합니다. 기록이 없으면 404, 소프트 삭제된 세션은 410입니다.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: '클라이언트가 생성한 session UUID',
+    format: 'uuid',
+  })
+  @ApiOkResponse({ type: SessionHistorySchema })
+  @ApiNotFoundResponse({ description: '해당 session_id의 기록이 없음' })
+  @ApiGoneResponse({ description: '소프트 삭제된 세션' })
+  async getSession(
+    @Param('id', ParseUUIDPipe) sessionId: string,
+  ): Promise<SessionHistorySchema> {
+    return this.chatHistory.getSession(sessionId);
+  }
 
   @Delete(':id')
   @HttpCode(204)

@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   buildLegacyResultsResponse,
@@ -81,11 +82,12 @@ describe('ChatService', () => {
 
   function createChatHistoryMock(): Pick<
     ChatHistoryService,
-    'assertCanAppend' | 'appendTurn'
+    'assertCanAppend' | 'appendTurn' | 'listActiveMessages'
   > {
     return {
       assertCanAppend: jest.fn().mockResolvedValue(undefined),
       appendTurn: jest.fn().mockResolvedValue(undefined),
+      listActiveMessages: jest.fn().mockResolvedValue([]),
     };
   }
 
@@ -197,6 +199,44 @@ describe('ChatService', () => {
       rag_used: false,
     });
     expect(response.citations).toBeUndefined();
+  });
+
+  it('logs the truncated messages sent to the LLM after RAG inject', async () => {
+    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () =>
+        buildRagRetrieveResponse(
+          [
+            {
+              ...sampleRagApiCitation,
+              filename: 'doc.pdf',
+              page: 1,
+              snippet: 'info',
+            },
+          ],
+          { query: 'What is NestJS?' },
+        ),
+    });
+
+    const service = createService();
+    await service.chat({
+      messages: [{ role: ChatRole.User, content: 'What is NestJS?' }],
+      group_id: 'team-a',
+    });
+
+    const llmLog = log.mock.calls
+      .map((args) => String(args[0]))
+      .find((line) => line.startsWith('LLM request'));
+
+    expect(llmLog).toContain('model=test-model');
+    expect(llmLog).toContain('base_url=http://llm.local/v1');
+    expect(llmLog).toContain('[0] system');
+    expect(llmLog).toContain('[Retrieved context]');
+    expect(llmLog).toContain('(doc.pdf p.1) info');
+    expect(llmLog).toContain('[1] user');
+    expect(llmLog).toContain('What is NestJS?');
   });
 
   it('truncates LLM input after RAG inject while retrieve uses last user as-is', async () => {

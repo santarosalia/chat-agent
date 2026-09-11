@@ -10,11 +10,14 @@ import {
 import {
   ChatApiError,
   deleteSession,
+  getSession,
   postChat,
   postChatStream,
 } from '@/lib/chat-api';
 import {
   buildChatRequest,
+  isSessionUuid,
+  sessionHistoryToThread,
   ThreadMessage,
 } from '@/lib/chat-thread';
 import { MarkdownBody } from '@/lib/markdown-body';
@@ -29,6 +32,8 @@ function createId(): string {
   return crypto.randomUUID();
 }
 
+const SESSION_LOAD_DEBOUNCE_MS = 350;
+
 export default function HomePage() {
   const [userInput, setUserInput] = useState('');
   const [groupId, setGroupId] = useState('');
@@ -40,6 +45,7 @@ export default function HomePage() {
   const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(false);
   const [deletingSession, setDeletingSession] = useState(false);
+  const [sessionStatus, setSessionStatus] = useState<string | null>(null);
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -52,6 +58,50 @@ export default function HomePage() {
     }
     thread.scrollTop = thread.scrollHeight;
   }, [messages]);
+
+  useEffect(() => {
+    const id = sessionId.trim();
+    if (!isSessionUuid(id)) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setSessionStatus('세션을 불러오는 중…');
+        try {
+          const history = await getSession(id, controller.signal);
+          setMessages(sessionHistoryToThread(history.session_id, history.messages));
+          if (history.user_id) {
+            setUserId(history.user_id);
+          }
+          setSessionStatus(`기록 ${history.messages.length}개 불러옴`);
+        } catch (loadError) {
+          if (controller.signal.aborted) {
+            return;
+          }
+          if (loadError instanceof ChatApiError && loadError.status === 404) {
+            setMessages([]);
+            setSessionStatus('이 세션 기록 없음. 보내면 저장됩니다.');
+            return;
+          }
+          if (loadError instanceof ChatApiError && loadError.status === 410) {
+            setMessages([]);
+          }
+          const message =
+            loadError instanceof Error
+              ? loadError.message
+              : '세션을 불러오지 못했습니다.';
+          setSessionStatus(message);
+        }
+      })();
+    }, SESSION_LOAD_DEBOUNCE_MS);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [sessionId]);
 
   function patchMessage(id: string, patch: Partial<ThreadMessage>) {
     setMessages((prev) =>
@@ -215,13 +265,17 @@ export default function HomePage() {
   }
 
   function startNewSession() {
+    abortRef.current?.abort();
+    setMessages([]);
     setSessionId(createId());
     setDeleteStatus(null);
+    setSessionStatus(null);
   }
 
   function clearSessionId() {
     setSessionId('');
     setDeleteStatus(null);
+    setSessionStatus(null);
   }
 
   async function handleDeleteSession() {
@@ -367,6 +421,42 @@ export default function HomePage() {
       </div>
 
       <form className="dock" onSubmit={handleSubmit}>
+        <div className="session-bar">
+          <div className="field session-field">
+            <label htmlFor="session-id">session_id</label>
+            <input
+              id="session-id"
+              type="text"
+              value={sessionId}
+                  onChange={(event) => {
+                    setSessionId(event.target.value);
+                    setDeleteStatus(null);
+                    setSessionStatus(null);
+                  }}
+              placeholder="비우면 기록 없음 · UUID"
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </div>
+          <div className="session-actions">
+            <button type="button" className="ghost" onClick={startNewSession}>
+              UUID 만들기
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={clearSessionId}
+              disabled={!sessionId}
+            >
+              비우기
+            </button>
+          </div>
+        </div>
+        {sessionStatus && (
+          <p className="session-status" role="status">
+            {sessionStatus}
+          </p>
+        )}
         {showSettings && (
           <>
             <div className="settings">
@@ -401,20 +491,6 @@ export default function HomePage() {
               </label>
             </div>
             <div className="settings history-settings">
-              <div className="field session-field">
-                <label htmlFor="session-id">session_id</label>
-                <input
-                  id="session-id"
-                  type="text"
-                  value={sessionId}
-                  onChange={(event) => {
-                    setSessionId(event.target.value);
-                    setDeleteStatus(null);
-                  }}
-                  placeholder="비우면 기록 없음"
-                  spellCheck={false}
-                />
-              </div>
               <div className="field">
                 <label htmlFor="user-id">user_id</label>
                 <input
@@ -426,17 +502,6 @@ export default function HomePage() {
                 />
               </div>
               <div className="session-actions">
-                <button type="button" className="ghost" onClick={startNewSession}>
-                  새 세션
-                </button>
-                <button
-                  type="button"
-                  className="ghost"
-                  onClick={clearSessionId}
-                  disabled={!sessionId}
-                >
-                  세션 비우기
-                </button>
                 <button
                   type="button"
                   className="ghost danger"

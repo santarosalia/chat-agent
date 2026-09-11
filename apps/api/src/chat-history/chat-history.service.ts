@@ -2,10 +2,12 @@ import {
   ConflictException,
   GoneException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { ChatRole } from '../chat/dto/chat-message.dto';
+import { ChatMessageDto, ChatRole } from '../chat/dto/chat-message.dto';
+import { RagCitation } from '../rag/rag.types';
 
 export interface AppendTurnInput {
   sessionId: string;
@@ -14,6 +16,21 @@ export interface AppendTurnInput {
   assistantContent: string;
   ragUsed: boolean;
   citations?: unknown;
+}
+
+export type SessionHistoryMessage =
+  | { role: 'user'; content: string }
+  | {
+      role: 'assistant';
+      content: string;
+      rag_used: boolean;
+      citations?: RagCitation[];
+    };
+
+export interface SessionHistory {
+  session_id: string;
+  user_id: string | null;
+  messages: SessionHistoryMessage[];
 }
 
 @Injectable()
@@ -71,4 +88,78 @@ export class ChatHistoryService {
       data: { deletedAt: new Date() },
     });
   }
+
+  async getSession(sessionId: string): Promise<SessionHistory> {
+    const deleted = await this.prisma.message.findFirst({
+      where: { sessionId, deletedAt: { not: null } },
+      select: { id: true },
+    });
+    if (deleted) {
+      throw new GoneException('Session has been deleted');
+    }
+
+    const rows = await this.prisma.message.findMany({
+      where: { sessionId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        role: true,
+        content: true,
+        ragUsed: true,
+        citations: true,
+        userId: true,
+      },
+    });
+
+    if (rows.length === 0) {
+      throw new NotFoundException('Session not found');
+    }
+
+    const userId =
+      rows.find((row) => row.userId != null)?.userId ?? null;
+
+    return {
+      session_id: sessionId,
+      user_id: userId,
+      messages: rows.map((row) => toHistoryMessage(row)),
+    };
+  }
+
+  async listActiveMessages(sessionId: string): Promise<ChatMessageDto[]> {
+    const rows = await this.prisma.message.findMany({
+      where: { sessionId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: { role: true, content: true },
+    });
+
+    return rows
+      .filter(
+        (row): row is { role: ChatRole.User | ChatRole.Assistant; content: string } =>
+          row.role === ChatRole.User || row.role === ChatRole.Assistant,
+      )
+      .map((row) => ({
+        role: row.role,
+        content: row.content,
+      }));
+  }
+}
+
+function toHistoryMessage(row: {
+  role: string;
+  content: string;
+  ragUsed: boolean | null;
+  citations: Prisma.JsonValue;
+}): SessionHistoryMessage {
+  if (row.role === ChatRole.Assistant) {
+    const message: SessionHistoryMessage = {
+      role: 'assistant',
+      content: row.content,
+      rag_used: row.ragUsed ?? false,
+    };
+    if (row.citations != null) {
+      message.citations = row.citations as unknown as RagCitation[];
+    }
+    return message;
+  }
+
+  return { role: 'user', content: row.content };
 }

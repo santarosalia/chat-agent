@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ChatHistoryModule } from './chat-history/chat-history.module';
 import { ChatModule } from './chat/chat.module';
+import { RequestLoggingMiddleware } from './common/request-logging.middleware';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -14,4 +15,8 @@ import { PrismaModule } from './prisma/prisma.module';
     ChatModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(RequestLoggingMiddleware).forRoutes('*');
+  }
+}

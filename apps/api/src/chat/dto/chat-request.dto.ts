@@ -17,7 +17,8 @@ export const DEFAULT_RAG_TOP_K = 5;
 export class ChatRequestDto {
   @ApiProperty({
     type: [ChatMessageDto],
-    description: '대화 기록; 최소 한 개의 메시지가 필요합니다',
+    description:
+      '이번 턴 메시지. session_id가 있으면 서버가 DB 히스토리를 앞에 붙이므로 보통 마지막 user 하나만 보냅니다. session_id가 없으면 이 배열이 LLM 입력입니다.',
     example: [{ role: 'user', content: '직원 핸드북에는 무엇이 있나요?' }],
   })
   @IsArray()
@@ -36,7 +37,8 @@ export class ChatRequestDto {
   group_id?: string;
 
   @ApiPropertyOptional({
-    description: '검색할 청크 개수 (생략 시 기본값 5)',
+    description:
+      '검색할 청크 개수. group_id 유무와 관계없이 retrieve에 전달됩니다 (생략 시 기본값 5)',
     example: 5,
     minimum: 1,
   })
@@ -48,7 +50,7 @@ export class ChatRequestDto {
 
   @ApiPropertyOptional({
     description:
-      '클라이언트 생성 session UUID. 생략 시 채팅 기록 영속화를 건너뜁니다.',
+      '클라이언트 생성 session UUID. 있으면 서버가 저장된 대화를 읽어 LLM에 붙이고, 성공 시 이번 턴을 저장합니다. 생략 시 기록 조회·저장을 건너뜁니다.',
     format: 'uuid',
     example: '550e8400-e29b-41d4-a716-446655440000',
   })

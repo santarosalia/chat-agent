@@ -33,9 +33,9 @@ describe('ChatService chat history integration', () => {
   const originalFetch = global.fetch;
 
   let chatHistory: {
-    ensureHistoryAllowed?: jest.Mock;
     assertCanAppend: jest.Mock;
     appendTurn: jest.Mock;
+    listActiveMessages: jest.Mock;
   };
 
   afterEach(() => {
@@ -62,6 +62,7 @@ describe('ChatService chat history integration', () => {
     chatHistory = {
       assertCanAppend: jest.fn().mockResolvedValue(undefined),
       appendTurn: jest.fn().mockResolvedValue(undefined),
+      listActiveMessages: jest.fn().mockResolvedValue([]),
     };
     return new ChatService(
       createConfig(),
@@ -84,6 +85,66 @@ describe('ChatService chat history integration', () => {
 
     expect(chatHistory.assertCanAppend).not.toHaveBeenCalled();
     expect(chatHistory.appendTurn).not.toHaveBeenCalled();
+    expect(chatHistory.listActiveMessages).not.toHaveBeenCalled();
+  });
+
+  it('loads stored turns and prepends them to the new user message for the LLM', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    const service = createService();
+    chatHistory.listActiveMessages.mockResolvedValueOnce([
+      { role: ChatRole.User, content: 'old question' },
+      { role: ChatRole.Assistant, content: 'old reply' },
+    ]);
+
+    await service.chat({
+      session_id: sessionId,
+      messages: [{ role: ChatRole.User, content: 'follow up' }],
+    });
+
+    expect(chatHistory.listActiveMessages).toHaveBeenCalledWith(sessionId);
+    expect(toLangChainMessages).toHaveBeenCalledWith([
+      { role: ChatRole.User, content: 'old question' },
+      { role: ChatRole.Assistant, content: 'old reply' },
+      { role: ChatRole.User, content: 'follow up' },
+    ]);
+    expect(
+      JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body as string)
+        .query,
+    ).toBe('follow up');
+  });
+
+  it('ignores extra request history when session_id is present', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    const service = createService();
+    chatHistory.listActiveMessages.mockResolvedValueOnce([
+      { role: ChatRole.User, content: 'stored question' },
+      { role: ChatRole.Assistant, content: 'stored reply' },
+    ]);
+
+    await service.chat({
+      session_id: sessionId,
+      messages: [
+        { role: ChatRole.User, content: 'client stale question' },
+        { role: ChatRole.Assistant, content: 'client stale reply' },
+        { role: ChatRole.User, content: 'follow up' },
+      ],
+    });
+
+    expect(toLangChainMessages).toHaveBeenCalledWith([
+      { role: ChatRole.User, content: 'stored question' },
+      { role: ChatRole.Assistant, content: 'stored reply' },
+      { role: ChatRole.User, content: 'follow up' },
+    ]);
   });
 
   it('appends user and assistant after successful chat', async () => {
@@ -120,6 +181,7 @@ describe('ChatService chat history integration', () => {
         .fn()
         .mockRejectedValue(new GoneException('Session has been deleted')),
       appendTurn: jest.fn(),
+      listActiveMessages: jest.fn(),
     };
     const service = new ChatService(
       createConfig(),
@@ -211,6 +273,7 @@ describe('ChatService chat history integration', () => {
     chatHistory = {
       assertCanAppend: jest.fn().mockResolvedValue(undefined),
       appendTurn: jest.fn().mockRejectedValue(new Error('connection refused')),
+      listActiveMessages: jest.fn().mockResolvedValue([]),
     };
     const service = new ChatService(
       createConfig(),
@@ -242,6 +305,7 @@ describe('ChatService chat history integration', () => {
     chatHistory = {
       assertCanAppend: jest.fn().mockResolvedValue(undefined),
       appendTurn: jest.fn().mockRejectedValue(new Error('insert failed')),
+      listActiveMessages: jest.fn().mockResolvedValue([]),
     };
     const service = new ChatService(
       createConfig(),
@@ -275,6 +339,7 @@ describe('ChatService chat history integration', () => {
         .fn()
         .mockRejectedValue(new Error('database unavailable')),
       appendTurn: jest.fn(),
+      listActiveMessages: jest.fn(),
     };
     const service = new ChatService(
       createConfig(),
@@ -300,6 +365,7 @@ describe('ChatService chat history integration', () => {
           new ConflictException('user_id does not match frozen session owner'),
         ),
       appendTurn: jest.fn(),
+      listActiveMessages: jest.fn(),
     };
     const service = new ChatService(
       createConfig(),

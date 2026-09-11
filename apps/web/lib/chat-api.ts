@@ -4,7 +4,7 @@
  */
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   content: string;
 }
 
@@ -15,7 +15,7 @@ export interface Citation {
 }
 
 export interface ChatResponse {
-  message: { role: 'assistant'; content: string };
+  message: { role: "assistant"; content: string };
   rag_used: boolean;
   citations?: Citation[];
 }
@@ -26,7 +26,7 @@ export interface StreamMeta {
 }
 
 export interface StreamDone {
-  message?: { role: 'assistant'; content: string };
+  message?: { role: "assistant"; content: string };
 }
 
 export interface StreamHandlers {
@@ -36,8 +36,7 @@ export interface StreamHandlers {
   onError?: (message: string) => void;
 }
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3000';
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:3000";
 
 export interface ChatRequestBody {
   messages: ChatMessage[];
@@ -47,12 +46,25 @@ export interface ChatRequestBody {
   user_id?: string;
 }
 
+export interface SessionHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+  rag_used?: boolean;
+  citations?: Citation[];
+}
+
+export interface SessionHistory {
+  session_id: string;
+  user_id: string | null;
+  messages: SessionHistoryMessage[];
+}
+
 export class ChatApiError extends Error {
   readonly status: number;
 
   constructor(status: number, message: string) {
     super(message);
-    this.name = 'ChatApiError';
+    this.name = "ChatApiError";
     this.status = status;
   }
 }
@@ -60,10 +72,12 @@ export class ChatApiError extends Error {
 function formatApiError(status: number, rawMessage: string): string {
   const message = rawMessage.trim();
   if (status === 409) {
-    return `409 Conflict — ${message || 'user_id 불일치 또는 생략 (frozen session)'}`;
+    return `409 Conflict — ${
+      message || "user_id 불일치 또는 생략 (frozen session)"
+    }`;
   }
   if (status === 410) {
-    return `410 Gone — ${message || '삭제된 session_id에 append 불가'}`;
+    return `410 Gone — ${message || "삭제된 session_id에 append 불가"}`;
   }
   return message || `HTTP ${status}`;
 }
@@ -74,10 +88,10 @@ async function parseErrorResponse(response: Response): Promise<never> {
 
   try {
     const payload = JSON.parse(text) as { message?: string | string[] };
-    if (typeof payload.message === 'string') {
+    if (typeof payload.message === "string") {
       message = payload.message;
     } else if (Array.isArray(payload.message)) {
-      message = payload.message.join(', ');
+      message = payload.message.join(", ");
     }
   } catch {
     // keep raw body
@@ -85,17 +99,17 @@ async function parseErrorResponse(response: Response): Promise<never> {
 
   throw new ChatApiError(
     response.status,
-    formatApiError(response.status, message),
+    formatApiError(response.status, message)
   );
 }
 
 export async function postChat(
   body: ChatRequestBody,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<ChatResponse> {
   const response = await fetch(`${API_BASE}/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal,
   });
@@ -107,16 +121,32 @@ export async function postChat(
   return response.json() as Promise<ChatResponse>;
 }
 
+export async function getSession(
+  sessionId: string,
+  signal?: AbortSignal
+): Promise<SessionHistory> {
+  const response = await fetch(
+    `${API_BASE}/sessions/${encodeURIComponent(sessionId)}`,
+    { signal }
+  );
+
+  if (!response.ok) {
+    await parseErrorResponse(response);
+  }
+
+  return response.json() as Promise<SessionHistory>;
+}
+
 export async function deleteSession(
   sessionId: string,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<number> {
   const response = await fetch(
     `${API_BASE}/sessions/${encodeURIComponent(sessionId)}`,
     {
-      method: 'DELETE',
+      method: "DELETE",
       signal,
-    },
+    }
   );
 
   return response.status;
@@ -125,11 +155,11 @@ export async function deleteSession(
 export async function postChatStream(
   body: ChatRequestBody,
   handlers: StreamHandlers,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/chat/stream`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal,
   });
@@ -139,12 +169,12 @@ export async function postChatStream(
   }
 
   if (!response.body) {
-    throw new Error('Streaming response body is missing');
+    throw new Error("Streaming response body is missing");
   }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = '';
+  let buffer = "";
 
   while (true) {
     const { done, value } = await reader.read();
@@ -159,8 +189,8 @@ export async function postChatStream(
 }
 
 function consumeSseBuffer(buffer: string, handlers: StreamHandlers): string {
-  const blocks = buffer.split('\n\n');
-  const remainder = blocks.pop() ?? '';
+  const blocks = buffer.split("\n\n");
+  const remainder = blocks.pop() ?? "";
 
   for (const block of blocks) {
     if (!block.trim()) {
@@ -173,14 +203,14 @@ function consumeSseBuffer(buffer: string, handlers: StreamHandlers): string {
 }
 
 function parseSseBlock(block: string, handlers: StreamHandlers): void {
-  const lines = block.split('\n');
-  let event = 'message';
+  const lines = block.split("\n");
+  let event = "message";
   const dataLines: string[] = [];
 
   for (const line of lines) {
-    if (line.startsWith('event:')) {
+    if (line.startsWith("event:")) {
       event = line.slice(6).trim();
-    } else if (line.startsWith('data:')) {
+    } else if (line.startsWith("data:")) {
       dataLines.push(line.slice(5).trim());
     }
   }
@@ -189,25 +219,25 @@ function parseSseBlock(block: string, handlers: StreamHandlers): void {
     return;
   }
 
-  const payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>;
+  const payload = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
 
   switch (event) {
-    case 'meta':
+    case "meta":
       handlers.onMeta?.({
         rag_used: Boolean(payload.rag_used),
         citations: payload.citations as Citation[] | undefined,
       });
       break;
-    case 'delta':
-      handlers.onDelta?.(String(payload.content ?? ''));
+    case "delta":
+      handlers.onDelta?.(String(payload.content ?? ""));
       break;
-    case 'done':
+    case "done":
       handlers.onDone?.({
-        message: payload.message as StreamDone['message'],
+        message: payload.message as StreamDone["message"],
       });
       break;
-    case 'error':
-      handlers.onError?.(String(payload.message ?? 'Unknown stream error'));
+    case "error":
+      handlers.onError?.(String(payload.message ?? "Unknown stream error"));
       break;
     default:
       break;

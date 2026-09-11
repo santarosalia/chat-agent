@@ -406,8 +406,16 @@ button:disabled {
   margin-bottom: 0.55rem;
 }
 
+.session-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: end;
+  margin-bottom: 0.55rem;
+}
+
 .history-settings {
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
 }
 
@@ -416,11 +424,19 @@ button:disabled {
   font-size: 0.78rem;
 }
 
+.session-bar .session-actions {
+  grid-column: auto;
+  padding-bottom: 0.05rem;
+}
+
 .session-actions {
-  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
+}
+
+.history-settings .session-actions {
+  grid-column: 1 / -1;
 }
 
 .session-actions .ghost {
@@ -442,6 +458,10 @@ button:disabled {
 @media (max-width: 560px) {
   .topbar {
     flex-wrap: wrap;
+  }
+
+  .session-bar {
+    grid-template-columns: 1fr;
   }
 
   .settings {

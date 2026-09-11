@@ -18,6 +18,7 @@ import {
 } from './dto/chat-request.dto';
 import { ChatResponseDto } from './dto/chat-response.dto';
 import { ChatMessageDto, ChatRole } from './dto/chat-message.dto';
+import { formatLlmRequestLog } from './llm-request-log';
 import {
   chunkString,
   extractStreamChunkContent,
@@ -56,7 +57,7 @@ export class ChatService {
 
   async chat(request: ChatRequestDto): Promise<ChatResponseDto> {
     const historyEnabled = await this.ensureHistoryAllowed(request);
-    const prepared = await this.prepareChatInput(request);
+    const prepared = await this.prepareChatInput(request, historyEnabled);
     const result = await this.graph.invoke({
       messages: toLangChainMessages(prepared.truncatedMessages),
     });
@@ -73,7 +74,7 @@ export class ChatService {
     let historyEnabled = false;
     try {
       historyEnabled = await this.ensureHistoryAllowed(request);
-      const prepared = await this.prepareChatInput(request);
+      const prepared = await this.prepareChatInput(request, historyEnabled);
       if (signal?.aborted) {
         return;
       }
@@ -119,8 +120,13 @@ export class ChatService {
 
   private async prepareChatInput(
     request: ChatRequestDto,
+    historyEnabled: boolean,
   ): Promise<PreparedChatInput> {
     const retrieveQuery = getLastUserMessageContent(request.messages);
+    const conversation = await this.resolveConversation(
+      request,
+      historyEnabled,
+    );
     const retrieval = await this.ragClient.retrieve(
       retrieveQuery,
       request.group_id,
@@ -128,12 +134,43 @@ export class ChatService {
     );
 
     const messagesForLlm = retrieval.ragUsed
-      ? injectRetrievedContext(request.messages, retrieval.contextBlock!)
-      : request.messages;
+      ? injectRetrievedContext(conversation, retrieval.contextBlock!)
+      : conversation;
 
     const truncatedMessages = truncateMessagesForLlm(messagesForLlm);
 
+    this.logger.log(
+      formatLlmRequestLog({
+        model: this.config.get<string>('VLLM_MODEL') ?? 'gpt-4o-mini',
+        baseUrl: this.config.get<string>('VLLM_BASE_URL'),
+        messages: truncatedMessages,
+      }),
+    );
+
     return { retrieval, truncatedMessages };
+  }
+
+  private async resolveConversation(
+    request: ChatRequestDto,
+    historyEnabled: boolean,
+  ): Promise<ChatMessageDto[]> {
+    if (!historyEnabled || !request.session_id) {
+      return request.messages;
+    }
+
+    try {
+      const stored = await this.chatHistory.listActiveMessages(
+        request.session_id,
+      );
+      const incoming = getLastUserMessage(request.messages);
+      return incoming ? [...stored, incoming] : [...stored, ...request.messages];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Chat history load failed; using request messages only: ${message}`,
+      );
+      return request.messages;
+    }
   }
 
   private buildResponse(
@@ -264,6 +301,17 @@ export class ChatService {
       );
     }
   }
+}
+
+export function getLastUserMessage(
+  messages: ChatMessageDto[],
+): ChatMessageDto | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    if (messages[i].role === ChatRole.User) {
+      return messages[i];
+    }
+  }
+  return undefined;
 }
 
 export function getLastUserMessageContentForHistory(
