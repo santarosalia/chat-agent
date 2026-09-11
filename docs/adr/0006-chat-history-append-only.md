@@ -41,12 +41,6 @@ Prisma `_prisma_migrations`는 multi-schema 설정으로 `chat_agent` 스키마�
 - `POST /chat`: 성공 응답 후 append.
 - `POST /chat/stream`: **`done` 이벤트까지 성공한 경우에만** append (abort/error → skip).
 
-### TTL
-
-- 환경 변수 `CHAT_HISTORY_TTL_DAYS` (기본 **30**).
-- 만료는 **배치/cron 삭제**로 처리합니다. **요청 경로에서 live GC를 수행하지 않습니다.**
-- v1.5에서는 cron wiring stub/문서화만 포함합니다.
-
 ### 소프트 삭제
 
 - `DELETE /sessions/:id` — `:id`는 `session_id`.
@@ -59,7 +53,7 @@ Prisma `_prisma_migrations`는 multi-schema 설정으로 `chat_agent` 스키마�
 
 ### `user_id` (선택)
 
-- 없으면 `session_id`만으로 append/410/TTL 동작.
+- 없으면 `session_id`만으로 append/410 동작.
 - **첫 append 시 `user_id`가 있으면** 세션에 **고정(freeze)**.
 - 이후 요청에서 `user_id` 생략 또는 다른 값 → **409 Conflict**.
 - 소프트 삭제 후에는 session 범위 **410** (변경 없음).
@@ -69,11 +63,4 @@ Prisma `_prisma_migrations`는 multi-schema 설정으로 `chat_agent` 스키마�
 - 서버는 대화를 append만 합니다. v1.5에서는 클라이언트가 기존 턴을 요청에 실어야 했으나, 그 계약은 [ADR 0007](./0007-server-owned-session-context.md)에서 서버 조회로 바뀌었습니다.
 - `apps/api`에 Prisma·Postgres 의존성이 추가됩니다. `DATABASE_URL` 미설정 시 앱 기동 시 Prisma 연결 실패 가능 — 운영 환경에서 마이그레이션·URL 설정 필요.
 - RAG Contract A 유지: retrieve는 HTTP만, Prisma에 RAG 모델 없음.
-- TTL cron은 후속 작업으로 wiring합니다.
 
-## 후속 (TTL cron stub)
-
-```typescript
-// 예: @nestjs/schedule — CHAT_HISTORY_TTL_DAYS 기준 created_at < now() - TTL 일괄 DELETE
-// v1.5 범위: ADR 문서화만, 요청 핸들러에 GC 로직 없음
-```

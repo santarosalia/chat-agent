@@ -54,7 +54,6 @@ LLM 프로토콜은 OpenAI 호환을 유지하며, 설정용 환경 변수 이�
 | `PORT` | HTTP 포트 (기본 `3000`) |
 | `CORS_ORIGIN` | 허용 Origin (기본 `http://localhost:3001`, 쉼표 구분) |
 | `DATABASE_URL` | Postgres 연결 URL (`chat_agent` 스키마, Prisma 마이그레이션) |
-| `CHAT_HISTORY_TTL_DAYS` | 기록 TTL 일수 (기본 `30`, 배치/cron 만료용; 요청 경로 GC 없음) |
 
 ### Web (`apps/web/.env.local`)
 
