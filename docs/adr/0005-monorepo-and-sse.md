@@ -15,8 +15,8 @@ pnpm workspace로 재구성합니다.
 
 | 경로 | 역할 |
 |------|------|
-| `apps/api` | 기존 Nest chat-agent (`POST /chat`, `POST /chat/stream`, `GET /health`) — **기본 포트 3000** |
-| `apps/web` | Next.js **테스트 전용** 채팅 UI (로그인·DB 세션·히스토리 영속 없음) — **기본 포트 3001** |
+| `apps/api` | Nest chat-agent (`POST /chat`, `POST /chat/stream`, `GET`/`DELETE /sessions/:id`, `GET /health`) — **기본 포트 3000** |
+| `apps/web` | Next.js **테스트 전용** 채팅 UI (로그인 없음; 기록은 API `session_id`로) — **기본 포트 3001** |
 | `docs/adr` | 설계 결정 (한국어 본문 유지) |
 
 루트 `package.json`은 `pnpm dev`, `pnpm test` 등 공통 스크립트를 제공합니다.
@@ -25,7 +25,7 @@ pnpm workspace로 재구성합니다.
 
 - **`POST /chat`**: 기존과 동일한 **비스트리밍 JSON** 계약 (`message`, `rag_used`, 선택적 `citations`). **변경 없음.**
 - **`POST /chat/stream`**: `Content-Type: text/event-stream`. 요청 본문은 `/chat`과 동일(`ChatRequestDto`).
-- 두 엔드포인트 모두 **동일 파이프라인**: **retrieve → inject → truncate(ADR 0004) → LLM**.
+- 두 엔드포인트 모두 **동일 파이프라인**: **(선택) 세션 검사·DB 대화 로드 → retrieve → inject → truncate(ADR 0004) → LLM → (선택) append**. 세션 로드는 [ADR 0007](./0007-server-owned-session-context.md).
 
 ### SSE 이벤트 순서 및 스키마
 
@@ -76,8 +76,9 @@ HTTP 응답 스트림 소비자(브라우저·프록시)가 연결을 끊으면,
 
 ### 테스트 전용 프론트엔드 (`apps/web`)
 
-- 인증 없음, 서버/클라이언트 채팅 히스토리 DB 없음.
-- 입력: user 메시지, 선택 `group_id`, 선택 `top_k`, stream / non-stream 토글.
+- 인증 없음. 브라우저 로컬 DB 없음. 기록은 API `session_id`로 조회·저장합니다.
+- 채팅 요청 `messages`는 **이번 user 하나**. 이전 턴은 서버가 DB에서 붙입니다 ([ADR 0007](./0007-server-owned-session-context.md)).
+- 입력: user 메시지, 선택 `group_id`/`top_k`, `session_id`/`user_id`, stream 토글.
 - 출력: assistant 텍스트, `rag_used` 배지(meta에서), citations 목록(meta에서).
 - **`NEXT_PUBLIC_API_BASE`**(기본 `http://localhost:3000`)로 API 호출.
 - **`POST /chat/stream`은 `EventSource` 사용 금지**(GET 전용). **`fetch` + `ReadableStream` 기반 `text/event-stream` 파서**로 POST 본문과 함께 소비.
@@ -98,4 +99,4 @@ API **`CORS_ORIGIN`**(기본 `http://localhost:3001`, 쉼표 구분 복수 가�
 - 스트림 소비자는 **`meta`에서 RAG 상태를 확정**하고, `delta`로 UX를 개선하며, **`done`은 완료만 알림**.
 - LLM 스트림 불가 환경에서는 청크 폴백으로 동작하지만 실시간성은 제한될 수 있습니다(문서화됨).
 - 클라이언트 이탈 시 LLM 리소스 낭비를 줄입니다.
-- 프로덕션 프론트·인증·세션 저장은 v1 범위 밖입니다.
+- 프로덕션 프론트·인증은 v1 범위 밖입니다. 세션 기록은 API Postgres(`chat_agent`)입니다.

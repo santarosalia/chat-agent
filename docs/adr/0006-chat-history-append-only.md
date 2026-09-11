@@ -1,6 +1,6 @@
 # ADR 0006: Append-only 채팅 기록 (v1.5)
 
-**Status:** Accepted  
+**Status:** Accepted (기록 모델). **조회 없음**과 **클라이언트가 기존 턴을 요청에 실어 보낸다**는 [ADR 0007](./0007-server-owned-session-context.md)에서 대체.  
 **Date:** 2026-09-10
 
 ## Context
@@ -34,9 +34,9 @@ Prisma `_prisma_migrations`는 multi-schema 설정으로 `chat_agent` 스키마�
 
 ### Append-only 동작
 
-- **조회/목록 API 없음** (v1.5).
+- ~~**조회/목록 API 없음** (v1.5).~~ → `GET /sessions/:id` 및 LLM 조합은 [ADR 0007](./0007-server-owned-session-context.md).
 - 클라이언트가 `session_id`(UUID)를 생성·전달합니다. 서버는 session ID를 발급하지 않습니다.
-- `session_id` **생략** 시 채팅은 정상 동작하되 **기록 영속화를 건너뜁니다**.
+- `session_id` **생략** 시 채팅은 정상 동작하되 **기록 조회·영속화를 건너뜁니다**.
 - **system 메시지·RAG inject 블록은 저장하지 않습니다.** 성공 응답 후 **마지막 user 턴 + assistant 턴**만 append합니다.
 - `POST /chat`: 성공 응답 후 append.
 - `POST /chat/stream`: **`done` 이벤트까지 성공한 경우에만** append (abort/error → skip).
@@ -66,7 +66,7 @@ Prisma `_prisma_migrations`는 multi-schema 설정으로 `chat_agent` 스키마�
 
 ## Consequences
 
-- 서버는 대화를 append만 하며, v1.5 클라이언트는 여전히 요청 본문에 기존 턴을 실어 보내야 합니다.
+- 서버는 대화를 append만 합니다. v1.5에서는 클라이언트가 기존 턴을 요청에 실어야 했으나, 그 계약은 [ADR 0007](./0007-server-owned-session-context.md)에서 서버 조회로 바뀌었습니다.
 - `apps/api`에 Prisma·Postgres 의존성이 추가됩니다. `DATABASE_URL` 미설정 시 앱 기동 시 Prisma 연결 실패 가능 — 운영 환경에서 마이그레이션·URL 설정 필요.
 - RAG Contract A 유지: retrieve는 HTTP만, Prisma에 RAG 모델 없음.
 - TTL cron은 후속 작업으로 wiring합니다.

@@ -6,8 +6,8 @@
 
 | 패키지 | 설명 |
 |--------|------|
-| `apps/api` | `POST /chat` (JSON), `POST /chat/stream` (SSE), `DELETE /sessions/:id`, `GET /health` |
-| `apps/web` | 로컬 API 테스트용 채팅 UI (로그인·히스토리 저장 없음) |
+| `apps/api` | `POST /chat`, `POST /chat/stream`, `GET`/`DELETE /sessions/:id`, `GET /health` |
+| `apps/web` | 로컬 API 테스트용 채팅 UI (`session_id`로 기록 조회·저장) |
 
 ## 빠른 시작
 
@@ -66,18 +66,21 @@ LLM 프로토콜은 OpenAI 호환을 유지하며, 설정용 환경 변수 이�
 
 ### `POST /chat` (JSON, 비스트리밍)
 
-기존 계약 유지. 응답: `message`, `rag_used`, 선택적 `citations`.
+응답: `message`, `rag_used`, 선택적 `citations`. `group_id` 생략 시 전체 코퍼스 검색이며 **`top_k`는 그때도 retrieve에 전달**(기본 5). 상세: [ADR 0002](./docs/adr/0002-request-scoped-index-params.md).
+
+`session_id`가 있으면 요청 `messages`는 **이번 user만** 보내고, 서버가 DB 대화를 앞에 붙입니다. 없으면 요청 `messages`가 곧 LLM 입력입니다. [ADR 0007](./docs/adr/0007-server-owned-session-context.md).
 
 ### `POST /chat/stream` (SSE)
 
 동일 요청 본문. `text/event-stream` 이벤트: `meta` → `delta`* → `done` (오류 시 `error`, `done` 없음). RAG 필드는 `meta` 전용. 브라우저는 `fetch` + SSE 파서 사용(`EventSource` 금지). 스키마는 [ADR 0005](./docs/adr/0005-monorepo-and-sse.md) 참고.
 
-### 채팅 기록 (v1.5, append-only)
+### 채팅 기록 (v1.5 저장, v1.6 조회·조합)
 
-- 요청에 선택 `session_id`(UUID), `user_id`(문자열). `session_id` 생략 시 기록 저장 안 함.
+- 요청에 선택 `session_id`(UUID), `user_id`(문자열). `session_id` 생략 시 기록 조회·저장 안 함. `chat_id` 없음.
+- `GET /sessions/:id` — 활성 턴 시간순. 없으면 **404**, 삭제된 세션 **410**.
 - `DELETE /sessions/:id` — 세션 소프트 삭제, **항상 204**.
 - 삭제된 세션에 append → **410**; 고정된 `user_id` 불일치 → **409**.
-- 조회 API 없음. 상세: [ADR 0006](./docs/adr/0006-chat-history-append-only.md).
+- 상세: [ADR 0006](./docs/adr/0006-chat-history-append-only.md), [ADR 0007](./docs/adr/0007-server-owned-session-context.md).
 
 ### RAG
 
@@ -97,7 +100,8 @@ pnpm start:api     # API 프로덕션 실행 (빌드 후)
 apps/
   api/src/
     chat/           # Controller, service, LangGraph, SSE, DTOs
-    chat-history/   # Append-only history, sessions DELETE
+    chat-history/   # Append-only history, GET/DELETE sessions
+    common/         # HTTP 액세스 로그
     prisma/         # Prisma module
     rag/            # Retrieve client, context injector
     health/
