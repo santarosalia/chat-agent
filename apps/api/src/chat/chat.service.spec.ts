@@ -6,7 +6,6 @@ import {
   sampleRagApiCitation,
 } from '../rag/rag-retrieve.fixtures';
 import { RagRetrieveClient } from '../rag/rag-retrieve.client';
-import { createChatGraph, toLangChainMessages } from './chat.graph';
 import { LLM_INPUT_MAX_MESSAGES } from './context-truncate';
 import { ChatHistoryService } from '../chat-history/chat-history.service';
 import { ChatService, getLastUserMessageContent } from './chat.service';
@@ -14,27 +13,16 @@ import { ChatRole } from './dto/chat-message.dto';
 import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
 
 const mockStream = jest.fn();
-
-jest.mock('./chat.graph', () => ({
-  createChatGraph: jest.fn(() => ({
-    invoke: jest.fn().mockResolvedValue({ response: 'Assistant reply' }),
-  })),
-  toLangChainMessages: jest.fn((messages) => messages),
-}));
+const mockLlmInvoke = jest
+  .fn()
+  .mockResolvedValue({ content: 'Assistant reply' });
 
 jest.mock('@langchain/openai', () => ({
   ChatOpenAI: jest.fn().mockImplementation(() => ({
     stream: mockStream,
-    invoke: jest.fn(),
+    invoke: mockLlmInvoke,
   })),
 }));
-
-const mockCreateChatGraph = createChatGraph as jest.MockedFunction<
-  typeof createChatGraph
->;
-const mockToLangChainMessages = toLangChainMessages as jest.MockedFunction<
-  typeof toLangChainMessages
->;
 
 describe('getLastUserMessageContent', () => {
   it('returns content of the last user message', () => {
@@ -62,6 +50,8 @@ describe('ChatService', () => {
     jest.clearAllMocks();
     jest.restoreAllMocks();
     mockStream.mockReset();
+    mockLlmInvoke.mockReset();
+    mockLlmInvoke.mockResolvedValue({ content: 'Assistant reply' });
   });
 
   function createConfig(
@@ -320,12 +310,13 @@ describe('ChatService', () => {
     );
     expect(retrieveBody.query).toBe('retrieve and answer this');
 
-    const llmMessages = mockToLangChainMessages.mock.calls[0][0];
+    const llmMessages = mockLlmInvoke.mock.calls[0][0] as Array<{
+      content: string;
+    }>;
     expect(llmMessages.length).toBeLessThanOrEqual(LLM_INPUT_MAX_MESSAGES);
-    expect(llmMessages[llmMessages.length - 1]).toEqual({
-      role: ChatRole.User,
-      content: 'retrieve and answer this',
-    });
+    expect(llmMessages[llmMessages.length - 1].content).toBe(
+      'retrieve and answer this',
+    );
     expect(llmMessages.some((m) => m.content === 'history-0')).toBe(false);
   });
 
@@ -374,13 +365,7 @@ describe('ChatService', () => {
       throw new Error('stream broke');
     }
     mockStream.mockResolvedValue(failingStream());
-
-    const mockInvoke = jest
-      .fn()
-      .mockResolvedValue({ response: 'full fallback' });
-    mockCreateChatGraph.mockReturnValueOnce({
-      invoke: mockInvoke,
-    } as never);
+    mockLlmInvoke.mockResolvedValue({ content: 'full fallback' });
 
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
@@ -396,7 +381,7 @@ describe('ChatService', () => {
     );
 
     const joined = chunks.join('');
-    expect(mockInvoke).not.toHaveBeenCalled();
+    expect(mockLlmInvoke).not.toHaveBeenCalled();
     expect(joined).toContain('event: meta');
     expect(joined).toContain('"content":"partial"');
     expect((joined.match(/event: delta/g) ?? []).length).toBe(1);
@@ -407,11 +392,7 @@ describe('ChatService', () => {
 
   it('streamChat emits error without done on LLM failure', async () => {
     mockStream.mockRejectedValue(new Error('LLM down'));
-
-    const mockInvoke = jest.fn().mockRejectedValue(new Error('LLM down'));
-    mockCreateChatGraph.mockReturnValueOnce({
-      invoke: mockInvoke,
-    } as never);
+    mockLlmInvoke.mockRejectedValue(new Error('LLM down'));
 
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

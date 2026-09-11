@@ -25,7 +25,7 @@ retrieve 쿼리는 대화가 있으면 리라이트한 독립 질문입니다 ([
 
 ### 파이프라인 (`POST /chat`, `POST /chat/stream`)
 
-`session_id`가 있을 때: **append 가능 여부 검사 → DB 대화 로드 → (필요 시) retrieve 쿼리 리라이트 → retrieve → inject → truncate → LLM → 성공 시 이번 user+assistant append**.
+`session_id`가 있을 때: **append 가능 여부 검사(서비스) → LangGraph(`load_history → rewrite → retrieve → prepare → llm`) → 성공 시 이번 user+assistant append(서비스)**. 그래프 소유권은 [ADR 0009](./0009-langgraph-pipeline.md).
 
 삭제된 세션(410)·고정 `user_id` 불일치(409)는 기존 ADR 0006과 같습니다. 그 외 persist/로드 DB 오류는 best-effort(채팅은 계속, 기록만 건너뜀).
 

@@ -7,18 +7,19 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatHistoryService } from '../chat-history/chat-history.service';
-import { injectRetrievedContext } from '../rag/rag-context.injector';
 import { RagRetrieveClient } from '../rag/rag-retrieve.client';
 import { RagRetrieveResult } from '../rag/rag.types';
-import { truncateMessagesForLlm } from './context-truncate';
-import { createChatGraph, toLangChainMessages } from './chat.graph';
+import {
+  createChatGraph,
+  llmContentToText,
+  toLangChainMessages,
+} from './chat.graph';
 import {
   ChatRequestDto,
   DEFAULT_RAG_TOP_K,
 } from './dto/chat-request.dto';
 import { ChatResponseDto } from './dto/chat-response.dto';
 import { ChatMessageDto, ChatRole } from './dto/chat-message.dto';
-import { formatLlmRequestLog } from './llm-request-log';
 import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
 import {
   chunkString,
@@ -30,16 +31,12 @@ import {
 
 const STREAM_FALLBACK_CHUNK_SIZE = 32;
 
-export interface PreparedChatInput {
-  retrieval: RagRetrieveResult;
-  truncatedMessages: ChatMessageDto[];
-}
-
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
   private readonly model: ChatOpenAI;
   private readonly graph: ReturnType<typeof createChatGraph>;
+  private readonly prepareGraph: ReturnType<typeof createChatGraph>;
 
   constructor(
     private readonly config: ConfigService,
@@ -54,16 +51,26 @@ export class ChatService {
       },
       model: this.config.get<string>('VLLM_MODEL') ?? 'gpt-4o-mini',
     });
-    this.graph = createChatGraph(this.model);
+    const deps = {
+      model: this.model,
+      ragClient: this.ragClient,
+      chatHistory: this.chatHistory,
+      queryRewriter: this.queryRewriter,
+      config: this.config,
+    };
+    this.graph = createChatGraph(deps);
+    this.prepareGraph = createChatGraph(deps, { includeLlm: false });
   }
 
   async chat(request: ChatRequestDto): Promise<ChatResponseDto> {
     const historyEnabled = await this.ensureHistoryAllowed(request);
-    const prepared = await this.prepareChatInput(request, historyEnabled);
-    const result = await this.graph.invoke({
-      messages: toLangChainMessages(prepared.truncatedMessages),
-    });
-    const response = this.buildResponse(prepared.retrieval, result.response ?? '');
+    const result = await this.graph.invoke(
+      toChatGraphInput(request, historyEnabled),
+    );
+    const response = this.buildResponse(
+      result.retrieval,
+      result.response ?? '',
+    );
     await this.persistTurnIfRequested(request, response, historyEnabled);
     return response;
   }
@@ -76,7 +83,10 @@ export class ChatService {
     let historyEnabled = false;
     try {
       historyEnabled = await this.ensureHistoryAllowed(request);
-      const prepared = await this.prepareChatInput(request, historyEnabled);
+      const prepared = await this.prepareGraph.invoke(
+        toChatGraphInput(request, historyEnabled),
+        { signal },
+      );
       if (signal?.aborted) {
         return;
       }
@@ -117,61 +127,6 @@ export class ChatService {
       }
       const message = error instanceof Error ? error.message : String(error);
       write(formatSseEvent('error', { message }));
-    }
-  }
-
-  private async prepareChatInput(
-    request: ChatRequestDto,
-    historyEnabled: boolean,
-  ): Promise<PreparedChatInput> {
-    const conversation = await this.resolveConversation(
-      request,
-      historyEnabled,
-    );
-    const retrieveQuery = await this.queryRewriter.rewrite(conversation);
-    const retrieval = await this.ragClient.retrieve(
-      retrieveQuery,
-      request.group_id,
-      request.top_k ?? DEFAULT_RAG_TOP_K,
-    );
-
-    const messagesForLlm = retrieval.ragUsed
-      ? injectRetrievedContext(conversation, retrieval.contextBlock!)
-      : conversation;
-
-    const truncatedMessages = truncateMessagesForLlm(messagesForLlm);
-
-    this.logger.log(
-      formatLlmRequestLog({
-        model: this.config.get<string>('VLLM_MODEL') ?? 'gpt-4o-mini',
-        baseUrl: this.config.get<string>('VLLM_BASE_URL'),
-        messages: truncatedMessages,
-      }),
-    );
-
-    return { retrieval, truncatedMessages };
-  }
-
-  private async resolveConversation(
-    request: ChatRequestDto,
-    historyEnabled: boolean,
-  ): Promise<ChatMessageDto[]> {
-    if (!historyEnabled || !request.session_id) {
-      return request.messages;
-    }
-
-    try {
-      const stored = await this.chatHistory.listActiveMessages(
-        request.session_id,
-      );
-      const incoming = getLastUserMessage(request.messages);
-      return incoming ? [...stored, incoming] : [...stored, ...request.messages];
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(
-        `Chat history load failed; using request messages only: ${message}`,
-      );
-      return request.messages;
     }
   }
 
@@ -233,14 +188,11 @@ export class ChatService {
       if (anyDeltaEmitted) {
         throw error;
       }
-      // Zero deltas emitted: LangGraph invoke fallback is allowed.
+      // Zero deltas emitted: non-streaming LLM invoke fallback is allowed.
     }
 
-    const result = await this.graph.invoke(
-      { messages: langChainMessages },
-      { signal },
-    );
-    const fullContent = result.response ?? '';
+    const result = await this.model.invoke(langChainMessages, { signal });
+    const fullContent = llmContentToText(result.content);
     for (const content of chunkString(fullContent, STREAM_FALLBACK_CHUNK_SIZE)) {
       if (signal?.aborted) {
         throw new DOMException('Stream aborted', 'AbortError');
@@ -305,15 +257,17 @@ export class ChatService {
   }
 }
 
-export function getLastUserMessage(
-  messages: ChatMessageDto[],
-): ChatMessageDto | undefined {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i].role === ChatRole.User) {
-      return messages[i];
-    }
-  }
-  return undefined;
+export function toChatGraphInput(
+  request: ChatRequestDto,
+  historyEnabled: boolean,
+) {
+  return {
+    requestMessages: request.messages,
+    sessionId: request.session_id,
+    groupId: request.group_id,
+    topK: request.top_k ?? DEFAULT_RAG_TOP_K,
+    historyEnabled,
+  };
 }
 
 export function getLastUserMessageContentForHistory(

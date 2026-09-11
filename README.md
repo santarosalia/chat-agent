@@ -67,7 +67,7 @@ LLM 프로토콜은 OpenAI 호환을 유지하며, 설정용 환경 변수 이�
 
 응답: `message`, `rag_used`, 선택적 `citations`. `group_id` 생략 시 전체 코퍼스 검색이며 **`top_k`는 그때도 retrieve에 전달**(기본 5). 상세: [ADR 0002](./docs/adr/0002-request-scoped-index-params.md).
 
-`session_id`가 있으면 요청 `messages`는 **이번 user만** 보내고, 서버가 DB 대화를 앞에 붙입니다. 없으면 요청 `messages`가 곧 LLM 입력입니다. [ADR 0007](./docs/adr/0007-server-owned-session-context.md).
+`session_id`가 있으면 요청 `messages`는 **이번 user만** 보내고, 서버가 DB 대화를 앞에 붙입니다. 없으면 요청 `messages`가 곧 LLM 입력입니다. [ADR 0007](./docs/adr/0007-server-owned-session-context.md). 파이프라인은 LangGraph 노드입니다 ([ADR 0009](./docs/adr/0009-langgraph-pipeline.md)).
 
 ### `POST /chat/stream` (SSE)
 

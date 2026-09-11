@@ -12,3 +12,4 @@ chat-agent v1 설계 결정을 담은 짧은 ADR 모음입니다.
 | [0006](./0006-chat-history-append-only.md) | Append-only 채팅 기록 (v1.5). 조회 없음·클라이언트 전체 messages는 0007이 대체 | Accepted |
 | [0007](./0007-server-owned-session-context.md) | 서버가 세션 대화를 조회해 LLM에 붙임; GET /sessions/:id | Accepted |
 | [0008](./0008-retrieve-query-rewrite.md) | retrieve 전 대화 기반 쿼리 리라이트 | Accepted |
+| [0009](./0009-langgraph-pipeline.md) | 채팅 파이프라인은 LangGraph가 소유. 단일 LLM 노드 래퍼는 대체 | Accepted |

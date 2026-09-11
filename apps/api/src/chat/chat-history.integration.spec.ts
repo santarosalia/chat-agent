@@ -5,7 +5,6 @@ import {
   buildRagRetrieveResponse,
 } from '../rag/rag-retrieve.fixtures';
 import { RagRetrieveClient } from '../rag/rag-retrieve.client';
-import { createChatGraph, toLangChainMessages } from './chat.graph';
 import {
   ChatService,
   getLastUserMessageContentForHistory,
@@ -14,18 +13,14 @@ import { ChatRole } from './dto/chat-message.dto';
 import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
 
 const mockStream = jest.fn();
-
-jest.mock('./chat.graph', () => ({
-  createChatGraph: jest.fn(() => ({
-    invoke: jest.fn().mockResolvedValue({ response: 'Assistant reply' }),
-  })),
-  toLangChainMessages: jest.fn((messages) => messages),
-}));
+const mockLlmInvoke = jest
+  .fn()
+  .mockResolvedValue({ content: 'Assistant reply' });
 
 jest.mock('@langchain/openai', () => ({
   ChatOpenAI: jest.fn().mockImplementation(() => ({
     stream: mockStream,
-    invoke: jest.fn(),
+    invoke: mockLlmInvoke,
   })),
 }));
 
@@ -43,6 +38,8 @@ describe('ChatService chat history integration', () => {
     global.fetch = originalFetch;
     jest.clearAllMocks();
     mockStream.mockReset();
+    mockLlmInvoke.mockReset();
+    mockLlmInvoke.mockResolvedValue({ content: 'Assistant reply' });
   });
 
   function createConfig(): ConfigService {
@@ -120,11 +117,11 @@ describe('ChatService chat history integration', () => {
     });
 
     expect(chatHistory.listActiveMessages).toHaveBeenCalledWith(sessionId);
-    expect(toLangChainMessages).toHaveBeenCalledWith([
-      { role: ChatRole.User, content: 'old question' },
-      { role: ChatRole.Assistant, content: 'old reply' },
-      { role: ChatRole.User, content: 'follow up' },
-    ]);
+    expect(
+      (mockLlmInvoke.mock.calls[0][0] as Array<{ content: string }>).map(
+        (message) => message.content,
+      ),
+    ).toEqual(['old question', 'old reply', 'follow up']);
     expect(
       JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body as string)
         .query,
@@ -153,11 +150,11 @@ describe('ChatService chat history integration', () => {
       ],
     });
 
-    expect(toLangChainMessages).toHaveBeenCalledWith([
-      { role: ChatRole.User, content: 'stored question' },
-      { role: ChatRole.Assistant, content: 'stored reply' },
-      { role: ChatRole.User, content: 'follow up' },
-    ]);
+    expect(
+      (mockLlmInvoke.mock.calls[0][0] as Array<{ content: string }>).map(
+        (message) => message.content,
+      ),
+    ).toEqual(['stored question', 'stored reply', 'follow up']);
   });
 
   it('appends user and assistant after successful chat', async () => {
@@ -404,11 +401,7 @@ describe('ChatService chat history integration', () => {
 
   it('skips append on stream error', async () => {
     mockStream.mockRejectedValue(new Error('LLM down'));
-
-    const mockInvoke = jest.fn().mockRejectedValue(new Error('LLM down'));
-    (createChatGraph as jest.Mock).mockReturnValueOnce({
-      invoke: mockInvoke,
-    });
+    mockLlmInvoke.mockRejectedValue(new Error('LLM down'));
 
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,

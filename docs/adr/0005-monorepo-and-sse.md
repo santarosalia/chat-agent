@@ -1,7 +1,8 @@
 # ADR 0005: pnpm 모노레포 및 SSE 스트리밍
 
 **Status:** Accepted  
-**Date:** 2026-09-10
+**Date:** 2026-09-10  
+**Note:** LangGraph 단일 LLM 노드 제한은 [ADR 0009](./0009-langgraph-pipeline.md)가 대체.
 
 ## Context
 
@@ -25,7 +26,7 @@ pnpm workspace로 재구성합니다.
 
 - **`POST /chat`**: 기존과 동일한 **비스트리밍 JSON** 계약 (`message`, `rag_used`, 선택적 `citations`). **변경 없음.**
 - **`POST /chat/stream`**: `Content-Type: text/event-stream`. 요청 본문은 `/chat`과 동일(`ChatRequestDto`).
-- 두 엔드포인트 모두 **동일 파이프라인**: **(선택) 세션 검사·DB 대화 로드 → (필요 시) retrieve 쿼리 리라이트(ADR 0008) → retrieve → inject → truncate(ADR 0004) → LLM → (선택) append**. 세션 로드는 [ADR 0007](./0007-server-owned-session-context.md).
+- 두 엔드포인트 모두 **동일 파이프라인**: LangGraph 노드 `load_history → rewrite → retrieve → prepare → llm` ([ADR 0009](./0009-langgraph-pipeline.md)). HTTP 계층은 세션 409/410 검사·SSE·append만 담당합니다. 세션 로드는 [ADR 0007](./0007-server-owned-session-context.md).
 
 ### SSE 이벤트 순서 및 스키마
 
@@ -66,9 +67,9 @@ data: {"message":"LLM request failed"}
 
 ### LLM 스트리밍 정직성
 
-- **1순위**: LangChain `ChatOpenAI.stream()`으로 OpenAI 호환 서버의 토큰/청크를 `delta`로 전달.
-- **폴백**: 스트림 API 실패 또는 빈 스트림 시 LangGraph 단일 LLM 노드(`invoke`) 결과를 고정 크기 청크로 나눠 `delta`를 emit한 뒤 `done` — **토큰 단위가 아닌 청크 스트리밍**임을 클라이언트는 인지해야 함.
-- LangGraph 경로 자체는 v1에서 스트리밍 노드로 확장하지 않음.
+- **1순위**: prepare 그래프(llm 제외) 완료 후 LangChain `ChatOpenAI.stream()`으로 토큰/청크를 `delta`로 전달.
+- **폴백**: 스트림 API 실패 또는 빈 스트림 시 같은 준비된 메시지로 `ChatOpenAI.invoke` 결과를 고정 크기 청크로 나눠 `delta`를 emit한 뒤 `done` — **토큰 단위가 아닌 청크 스트리밍**임을 클라이언트는 인지해야 함. retrieve는 다시 호출하지 않음.
+- 파이프라인 오케스트레이션은 LangGraph가 소유합니다 ([ADR 0009](./0009-langgraph-pipeline.md)). SSE 토큰 스트리밍은 그래프 노드가 아니라 `ChatOpenAI.stream()`입니다.
 
 ### 클라이언트 연결 해제
 
