@@ -275,15 +275,22 @@ describe('ChatService', () => {
 
     const llmLog = log.mock.calls
       .map((args) => String(args[0]))
-      .find((line) => line.startsWith('LLM request'));
+      .find((line) => line.includes('"event": "llm_request"'));
 
-    expect(llmLog).toContain('model=test-model');
-    expect(llmLog).toContain('base_url=http://llm.local/v1');
-    expect(llmLog).toContain('[0] system');
-    expect(llmLog).toContain('[Retrieved context]');
-    expect(llmLog).toContain('(doc.pdf p.1) info');
-    expect(llmLog).toContain('[1] user');
-    expect(llmLog).toContain('What is NestJS?');
+    expect(llmLog).toBeDefined();
+    const payload = JSON.parse(llmLog as string);
+    expect(payload).toEqual({
+      event: 'llm_request',
+      model: 'test-model',
+      base_url: 'http://llm.local/v1',
+      messages: [
+        {
+          role: 'system',
+          content: '[Retrieved context]\n- (doc.pdf p.1) info',
+        },
+        { role: 'user', content: 'What is NestJS?' },
+      ],
+    });
   });
 
   it('truncates LLM input after RAG inject while retrieve uses last user as-is', async () => {

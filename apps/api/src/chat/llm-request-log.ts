@@ -3,18 +3,14 @@ export function formatLlmRequestLog(input: {
   baseUrl?: string;
   messages: Array<{ role: string; content: string }>;
 }): string {
-  const header = [
-    'LLM request',
-    `model=${input.model}`,
-    input.baseUrl ? `base_url=${input.baseUrl}` : undefined,
-    `messages=${input.messages.length}`,
-  ]
-    .filter((part): part is string => part != null)
-    .join(' ');
-
-  const body = input.messages.map(
-    (message, index) => `[${index}] ${message.role}\n${message.content}`,
+  return JSON.stringify(
+    {
+      event: 'llm_request',
+      model: input.model,
+      ...(input.baseUrl ? { base_url: input.baseUrl } : {}),
+      messages: input.messages,
+    },
+    null,
+    2,
   );
-
-  return [header, ...body].join('\n');
 }
