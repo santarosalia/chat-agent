@@ -29,6 +29,9 @@ export class RagCitationSchema {
 
   @ApiProperty({ example: '직원은 연간 20일의 유급 휴가를 받을 자격이 있습니다.' })
   snippet!: string;
+
+  @ApiPropertyOptional({ example: 0.91, description: 'RAG retrieve 점수 (있으면)' })
+  score?: number;
 }
 
 export class ChatResponseSchema {

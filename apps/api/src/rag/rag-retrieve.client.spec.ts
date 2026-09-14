@@ -67,7 +67,7 @@ describe('RagRetrieveClient', () => {
     });
     expect(result.ragUsed).toBe(true);
     expect(result.citations).toEqual([
-      { filename: 'guide.pdf', page: 2, snippet: 'NestJS basics' },
+      { filename: 'guide.pdf', page: 2, snippet: 'NestJS basics', score: 0.91 },
     ]);
     expect(result.contextBlock).toBe(
       formatContextBlock(result.citations),
@@ -210,6 +210,7 @@ describe('RagRetrieveClient', () => {
         filename: 'guide.pdf',
         page: 4,
         snippet: 'Full chunk about leave policy',
+        score: 0.9,
       },
     ]);
   });
@@ -236,7 +237,7 @@ describe('RagRetrieveClient', () => {
     const result = await client.retrieve('query', 'group-a');
     expect(result.ragUsed).toBe(true);
     expect(result.citations).toEqual([
-      { filename: 'notes.md', page: 1, snippet: 'Some note' },
+      { filename: 'notes.md', page: 1, snippet: 'Some note', score: 0.8 },
     ]);
   });
 });

@@ -1,6 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildChatRequest, isSessionUuid, sessionHistoryToThread, toChatRequestMessages } from './chat-thread.ts';
+import {
+  buildChatRequest,
+  formatCitationSource,
+  isSessionUuid,
+  sessionHistoryToThread,
+  toChatRequestMessages,
+} from './chat-thread.ts';
 import type { ThreadMessage } from './chat-thread.ts';
 
 function msg(
@@ -132,7 +138,7 @@ describe('sessionHistoryToThread', () => {
           role: 'assistant',
           content: '답변',
           rag_used: true,
-          citations: [{ filename: 'a.pdf', page: 1, snippet: 'ctx' }],
+          citations: [{ filename: 'a.pdf', page: 1, snippet: 'ctx', score: 0.91 }],
         },
       ],
     );
@@ -142,11 +148,36 @@ describe('sessionHistoryToThread', () => {
     assert.equal(thread[1].role, 'assistant');
     assert.equal(thread[1].ragUsed, true);
     assert.deepEqual(thread[1].citations, [
-      { filename: 'a.pdf', page: 1, snippet: 'ctx' },
+      { filename: 'a.pdf', page: 1, snippet: 'ctx', score: 0.91 },
     ]);
     assert.equal(
       thread[0].id,
       '550e8400-e29b-41d4-a716-446655440000:0',
+    );
+  });
+});
+
+describe('formatCitationSource', () => {
+  it('appends a 3-decimal score next to filename and page', () => {
+    assert.equal(
+      formatCitationSource({
+        filename: 'handbook.pdf',
+        page: 3,
+        snippet: '연차 20일',
+        score: 0.91,
+      }),
+      'handbook.pdf · p.3 · 0.910',
+    );
+  });
+
+  it('omits score when it is missing', () => {
+    assert.equal(
+      formatCitationSource({
+        filename: 'handbook.pdf',
+        page: 3,
+        snippet: '연차 20일',
+      }),
+      'handbook.pdf · p.3',
     );
   });
 });

@@ -12,6 +12,7 @@ export interface Citation {
   filename: string;
   page: number;
   snippet: string;
+  score?: number;
 }
 
 export interface ChatResponse {

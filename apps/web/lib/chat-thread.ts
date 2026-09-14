@@ -82,6 +82,14 @@ export function isSessionUuid(value: string): boolean {
   return SESSION_UUID.test(value.trim());
 }
 
+export function formatCitationSource(citation: Citation): string {
+  const source = `${citation.filename} · p.${citation.page}`;
+  if (typeof citation.score !== 'number' || !Number.isFinite(citation.score)) {
+    return source;
+  }
+  return `${source} · ${citation.score.toFixed(3)}`;
+}
+
 export function sessionHistoryToThread(
   sessionId: string,
   messages: SessionHistoryMessage[],

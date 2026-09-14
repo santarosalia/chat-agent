@@ -2,6 +2,7 @@ export interface RagCitation {
   filename: string;
   page: number;
   snippet: string;
+  score?: number;
 }
 
 export interface RagRetrieveResult {

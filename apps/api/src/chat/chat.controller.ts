@@ -95,6 +95,7 @@ export class ChatController {
                 {
                   filename: 'handbook.pdf',
                   page: 3,
+                  score: 0.91,
                   snippet:
                     '직원은 연간 20일의 유급 휴가를 받을 자격이 있습니다.',
                 },

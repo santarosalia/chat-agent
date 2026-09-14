@@ -101,6 +101,7 @@ function toCitation(hit: {
   page?: number | null;
   snippet?: string | null;
   content?: string | null;
+  score?: number;
 }): RagCitation | null {
   const filename = hit.filename?.trim();
   const snippet = hit.content?.trim() || hit.snippet?.trim();
@@ -108,7 +109,11 @@ function toCitation(hit: {
     return null;
   }
   const page = typeof hit.page === "number" && hit.page > 0 ? hit.page : 1;
-  return { filename, page, snippet };
+  const citation: RagCitation = { filename, page, snippet };
+  if (typeof hit.score === "number" && Number.isFinite(hit.score)) {
+    citation.score = hit.score;
+  }
+  return citation;
 }
 
 export function formatContextBlock(citations: RagCitation[]): string {

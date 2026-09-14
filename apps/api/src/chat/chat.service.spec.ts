@@ -147,7 +147,7 @@ describe('ChatService', () => {
     expect(response).toEqual({
       message: { role: 'assistant', content: 'Assistant reply' },
       rag_used: true,
-      citations: [{ filename: 'doc.pdf', page: 1, snippet: 'info' }],
+      citations: [{ filename: 'doc.pdf', page: 1, snippet: 'info', score: 0.91 }],
     });
   });
 

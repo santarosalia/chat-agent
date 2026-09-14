@@ -16,6 +16,7 @@ import {
 } from '@/lib/chat-api';
 import {
   buildChatRequest,
+  formatCitationSource,
   isSessionUuid,
   sessionHistoryToThread,
   ThreadMessage,
@@ -390,10 +391,7 @@ export default function HomePage() {
                         </span>
                         <span className="cite-names">
                           {message.citations
-                            .map(
-                              (citation) =>
-                                `${citation.filename} p.${citation.page}`,
-                            )
+                            .map((citation) => formatCitationSource(citation))
                             .join(' · ')}
                         </span>
                       </summary>
@@ -403,7 +401,7 @@ export default function HomePage() {
                             key={`${citation.filename}-${citation.page}-${index}`}
                           >
                             <div className="cite-tab">
-                              {citation.filename} · p.{citation.page}
+                              {formatCitationSource(citation)}
                             </div>
                             <div className="cite-snippet">
                               {citation.snippet}
