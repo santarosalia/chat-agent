@@ -15,7 +15,6 @@ import { RagRetrieveResult } from '../rag/rag.types';
 import { truncateMessagesForLlm } from './context-truncate';
 import { ChatMessageDto, ChatRole } from './dto/chat-message.dto';
 import { DEFAULT_RAG_TOP_K } from './dto/chat-request.dto';
-import { formatLlmRequestLog } from './llm-request-log';
 import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
 
 const emptyRetrieval = (): RagRetrieveResult => ({
@@ -167,13 +166,13 @@ export function createChatGraph(
           ? injectRetrievedContext(state.conversation, state.retrieval.contextBlock)
           : state.conversation;
       const truncatedMessages = truncateMessagesForLlm(messagesForLlm);
-      logger.log(
-        formatLlmRequestLog({
-          model: deps.config.get<string>('VLLM_MODEL') ?? 'gpt-4o-mini',
-          baseUrl: deps.config.get<string>('VLLM_BASE_URL'),
-          messages: truncatedMessages,
-        }),
-      );
+      // logger.log(
+      //   formatLlmRequestLog({
+      //     model: deps.config.get<string>('VLLM_MODEL') ?? 'gpt-4o-mini',
+      //     baseUrl: deps.config.get<string>('VLLM_BASE_URL'),
+      //     messages: truncatedMessages,
+      //   }),
+      // );
       return { truncatedMessages };
     })
     .addEdge(START, 'load_history')

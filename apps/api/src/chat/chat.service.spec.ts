@@ -1,4 +1,3 @@
-import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   buildLegacyResultsResponse,
@@ -246,51 +245,6 @@ describe('ChatService', () => {
       rag_used: false,
     });
     expect(response.citations).toBeUndefined();
-  });
-
-  it('logs the truncated messages sent to the LLM after RAG inject', async () => {
-    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation();
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () =>
-        buildRagRetrieveResponse(
-          [
-            {
-              ...sampleRagApiCitation,
-              filename: 'doc.pdf',
-              page: 1,
-              snippet: 'info',
-            },
-          ],
-          { query: 'What is NestJS?' },
-        ),
-    });
-
-    const service = createService();
-    await service.chat({
-      messages: [{ role: ChatRole.User, content: 'What is NestJS?' }],
-      group_id: 'team-a',
-    });
-
-    const llmLog = log.mock.calls
-      .map((args) => String(args[0]))
-      .find((line) => line.includes('"event": "llm_request"'));
-
-    expect(llmLog).toBeDefined();
-    const payload = JSON.parse(llmLog as string);
-    expect(payload).toEqual({
-      event: 'llm_request',
-      model: 'test-model',
-      base_url: 'http://llm.local/v1',
-      messages: [
-        {
-          role: 'system',
-          content: '[Retrieved context]\n- (doc.pdf p.1) info',
-        },
-        { role: 'user', content: 'What is NestJS?' },
-      ],
-    });
   });
 
   it('truncates LLM input after RAG inject while retrieve uses last user as-is', async () => {
