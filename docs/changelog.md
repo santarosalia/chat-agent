@@ -1,5 +1,6 @@
 # Changelog
 
+- **v1.10** — 답변 LLM에 문서 근거 시스템 프롬프트를 넣음. retrieve 컨텍스트는 같은 system 메시지에 합쳐 맨 앞에 둔다.
 - **v1.9** — citations에 retrieve `score`를 넣고, 테스트 UI 출처에 파일·페이지와 함께 표시.
 - **v1.8** — 채팅 파이프라인을 LangGraph 노드로 이동 (ADR 0009). `ChatService`는 SSE·세션 검사·append만 담당.
 - **v1.7** — retrieve 전 대화 기반 쿼리 리라이트 (ADR 0008). 첫 턴은 user 원문, 실패 시 마지막 user로 폴백.

@@ -7,6 +7,7 @@ import { LLM_INPUT_MAX_MESSAGES } from './context-truncate';
 import { createChatGraph, ChatGraphDeps } from './chat.graph';
 import { ChatRole } from './dto/chat-message.dto';
 import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
+import { ANSWER_SYSTEM_PROMPT } from './answer-system-prompt';
 
 describe('createChatGraph', () => {
   const emptyRetrieval: RagRetrieveResult = {
@@ -128,7 +129,13 @@ describe('createChatGraph', () => {
 
     const llmMessages = (deps.model.invoke as jest.Mock).mock.calls[0][0];
     expect(llmMessages.length).toBeLessThanOrEqual(LLM_INPUT_MAX_MESSAGES);
+    expect(llmMessages[0].content).toContain(ANSWER_SYSTEM_PROMPT);
     expect(llmMessages[0].content).toContain('[Retrieved context]');
+    expect(
+      llmMessages.slice(1).some((message: { content: string }) =>
+        message.content === ANSWER_SYSTEM_PROMPT,
+      ),
+    ).toBe(false);
     expect(llmMessages[llmMessages.length - 1].content).toBe(
       'retrieve and answer this',
     );
@@ -151,6 +158,7 @@ describe('createChatGraph', () => {
     expect(deps.model.invoke).not.toHaveBeenCalled();
     expect(result.response).toBeUndefined();
     expect(result.truncatedMessages).toEqual([
+      { role: ChatRole.System, content: ANSWER_SYSTEM_PROMPT },
       { role: ChatRole.User, content: 'Hi' },
     ]);
   });

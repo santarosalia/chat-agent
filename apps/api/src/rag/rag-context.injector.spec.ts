@@ -5,7 +5,24 @@ describe('injectRetrievedContext', () => {
   const contextBlock =
     '[Retrieved context]\n- (doc.pdf p.1) sample snippet';
 
-  it('inserts context message before existing system message', () => {
+  it('merges context into the leading system message', () => {
+    const messages = [
+      { role: ChatRole.System, content: 'You are helpful.' },
+      { role: ChatRole.User, content: 'Question?' },
+    ];
+
+    const result = injectRetrievedContext(messages, contextBlock);
+
+    expect(result).toEqual([
+      {
+        role: ChatRole.System,
+        content: `You are helpful.\n\n${contextBlock}`,
+      },
+      { role: ChatRole.User, content: 'Question?' },
+    ]);
+  });
+
+  it('moves a merged system message to the beginning', () => {
     const messages = [
       { role: ChatRole.User, content: 'Hello' },
       { role: ChatRole.System, content: 'You are helpful.' },
@@ -15,9 +32,11 @@ describe('injectRetrievedContext', () => {
     const result = injectRetrievedContext(messages, contextBlock);
 
     expect(result).toEqual([
+      {
+        role: ChatRole.System,
+        content: `You are helpful.\n\n${contextBlock}`,
+      },
       { role: ChatRole.User, content: 'Hello' },
-      { role: ChatRole.System, content: contextBlock },
-      { role: ChatRole.System, content: 'You are helpful.' },
       { role: ChatRole.User, content: 'Question?' },
     ]);
   });

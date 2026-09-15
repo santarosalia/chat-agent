@@ -15,6 +15,7 @@ import { RagRetrieveResult } from '../rag/rag.types';
 import { truncateMessagesForLlm } from './context-truncate';
 import { ChatMessageDto, ChatRole } from './dto/chat-message.dto';
 import { DEFAULT_RAG_TOP_K } from './dto/chat-request.dto';
+import { withAnswerSystemPrompt } from './answer-system-prompt';
 import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
 
 const emptyRetrieval = (): RagRetrieveResult => ({
@@ -161,10 +162,11 @@ export function createChatGraph(
       ),
     }))
     .addNode('prepare', async (state: ChatGraphState) => {
+      const withPolicy = withAnswerSystemPrompt(state.conversation);
       const messagesForLlm =
         state.retrieval.ragUsed && state.retrieval.contextBlock
-          ? injectRetrievedContext(state.conversation, state.retrieval.contextBlock)
-          : state.conversation;
+          ? injectRetrievedContext(withPolicy, state.retrieval.contextBlock)
+          : withPolicy;
       const truncatedMessages = truncateMessagesForLlm(messagesForLlm);
       // logger.log(
       //   formatLlmRequestLog({

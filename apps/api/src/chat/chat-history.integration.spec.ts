@@ -10,6 +10,7 @@ import {
   getLastUserMessageContentForHistory,
 } from './chat.service';
 import { ChatRole } from './dto/chat-message.dto';
+import { ANSWER_SYSTEM_PROMPT } from './answer-system-prompt';
 import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
 
 const mockStream = jest.fn();
@@ -121,7 +122,7 @@ describe('ChatService chat history integration', () => {
       (mockLlmInvoke.mock.calls[0][0] as Array<{ content: string }>).map(
         (message) => message.content,
       ),
-    ).toEqual(['old question', 'old reply', 'follow up']);
+    ).toEqual([ANSWER_SYSTEM_PROMPT, 'old question', 'old reply', 'follow up']);
     expect(
       JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body as string)
         .query,
@@ -154,7 +155,7 @@ describe('ChatService chat history integration', () => {
       (mockLlmInvoke.mock.calls[0][0] as Array<{ content: string }>).map(
         (message) => message.content,
       ),
-    ).toEqual(['stored question', 'stored reply', 'follow up']);
+    ).toEqual([ANSWER_SYSTEM_PROMPT, 'stored question', 'stored reply', 'follow up']);
   });
 
   it('appends user and assistant after successful chat', async () => {
