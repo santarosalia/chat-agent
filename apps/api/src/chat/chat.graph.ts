@@ -17,7 +17,16 @@ import {
   runAnswerWithRetrieveTool,
   streamAnswerWithRetrieveTool,
 } from "./answer-with-retrieve-tool";
-import { RetrieveSufficiencyEvaluatorPort } from "./retrieve-evaluate-loop";
+import {
+  RetrieveSufficiencyEvaluatorPort,
+  routeAfterEvaluate,
+  runEvaluateRound,
+  runRetrieveRound,
+} from "./retrieve-evaluate-loop";
+import {
+  SearchHistoryEntry,
+  SufficiencyEvaluation,
+} from "./retrieve-sufficiency";
 
 const emptyRetrieval = (): RagRetrieveResult => ({
   ragUsed: false,
@@ -49,6 +58,14 @@ const ChatState = Annotation.Root({
   retrieval: Annotation<RagRetrieveResult>({
     reducer: (_, next) => next,
     default: () => emptyRetrieval(),
+  }),
+  searchHistory: Annotation<SearchHistoryEntry[]>({
+    reducer: (_, next) => next,
+    default: () => [],
+  }),
+  evaluationHistory: Annotation<SufficiencyEvaluation[]>({
+    reducer: (_, next) => next,
+    default: () => [],
   }),
   truncatedMessages: Annotation<ChatMessageDto[]>({
     reducer: (_, next) => next,
@@ -99,6 +116,10 @@ export function getLastUserMessage(
   return undefined;
 }
 
+function lastUserQuestion(messages: ChatMessageDto[]): string {
+  return getLastUserMessage(messages)?.content.trim() ?? "";
+}
+
 async function resolveConversation(
   requestMessages: ChatMessageDto[],
   sessionId: string | undefined,
@@ -140,7 +161,27 @@ export function createChatGraph(deps: ChatGraphDeps) {
         withAnswerSystemPrompt(state.conversation)
       ),
     }))
-    .addNode("llm", async (state: ChatGraphState, config) => {
+    .addNode("retrieve", async (state: ChatGraphState) =>
+      runRetrieveRound({
+        ragClient: deps.ragClient,
+        question: lastUserQuestion(state.truncatedMessages),
+        groupId: state.groupId,
+        retrieval: state.retrieval,
+        searchHistory: state.searchHistory,
+        evaluationHistory: state.evaluationHistory,
+      })
+    )
+    .addNode("evaluate", async (state: ChatGraphState, config) =>
+      runEvaluateRound({
+        evaluator: deps.evaluator,
+        question: lastUserQuestion(state.truncatedMessages),
+        retrieval: state.retrieval,
+        searchHistory: state.searchHistory,
+        evaluationHistory: state.evaluationHistory,
+        signal: config?.signal as AbortSignal | undefined,
+      })
+    )
+    .addNode("answer", async (state: ChatGraphState, config) => {
       const callbacks = config?.configurable as
         | ChatGraphStreamCallbacks
         | undefined;
@@ -149,20 +190,16 @@ export function createChatGraph(deps: ChatGraphDeps) {
       const result = callbacks?.onDelta
         ? await streamAnswerWithRetrieveTool({
             model: deps.model,
-            evaluator: deps.evaluator,
-            ragClient: deps.ragClient,
             messages,
-            groupId: state.groupId,
+            retrieval: state.retrieval,
             signal,
             onMeta: callbacks.onMeta ?? (() => undefined),
             onDelta: callbacks.onDelta,
           })
         : await runAnswerWithRetrieveTool({
             model: deps.model,
-            evaluator: deps.evaluator,
-            ragClient: deps.ragClient,
             messages,
-            groupId: state.groupId,
+            retrieval: state.retrieval,
             signal,
           });
       return {
@@ -172,7 +209,14 @@ export function createChatGraph(deps: ChatGraphDeps) {
     })
     .addEdge(START, "load_history")
     .addEdge("load_history", "prepare")
-    .addEdge("prepare", "llm")
-    .addEdge("llm", END)
+    .addConditionalEdges(
+      "prepare",
+      (state: ChatGraphState) =>
+        lastUserQuestion(state.truncatedMessages) ? "retrieve" : "answer",
+      ["retrieve", "answer"]
+    )
+    .addEdge("retrieve", "evaluate")
+    .addConditionalEdges("evaluate", routeAfterEvaluate, ["retrieve", "answer"])
+    .addEdge("answer", END)
     .compile();
 }

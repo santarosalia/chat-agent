@@ -12,12 +12,6 @@ import {
 
 const logger = new Logger('RetrieveEvaluateLoop');
 
-const emptyRetrieval = (): RagRetrieveResult => ({
-  ragUsed: false,
-  citations: [],
-  contextBlock: null,
-});
-
 export type RetrieveSufficiencyEvaluatorPort = {
   evaluate(input: {
     question: string;
@@ -28,56 +22,75 @@ export type RetrieveSufficiencyEvaluatorPort = {
   }): Promise<SufficiencyEvaluation>;
 };
 
-export async function runRetrieveEvaluateLoop(input: {
+export async function runRetrieveRound(input: {
   ragClient: Pick<RagRetrieveClient, 'retrieve'>;
-  evaluator: RetrieveSufficiencyEvaluatorPort;
   question: string;
   groupId?: string;
-  signal?: AbortSignal;
-}): Promise<{
   retrieval: RagRetrieveResult;
   searchHistory: SearchHistoryEntry[];
   evaluationHistory: SufficiencyEvaluation[];
+}): Promise<{
+  retrieval: RagRetrieveResult;
+  searchHistory: SearchHistoryEntry[];
 }> {
-  const question = input.question.trim();
-  const searchHistory: SearchHistoryEntry[] = [];
-  const evaluationHistory: SufficiencyEvaluation[] = [];
-  let retrieval = emptyRetrieval();
-  if (!question) {
-    return { retrieval, searchHistory, evaluationHistory };
-  }
+  const round = input.searchHistory.length;
+  const topK = RETRIEVE_TOP_K_SCHEDULE[round];
+  const query = nextRetrieveQuery(input.question, input.evaluationHistory.at(-1));
+  logger.log(
+    `retrieve round=${round + 1} query=${JSON.stringify(query)} group_id=${JSON.stringify(input.groupId ?? null)} top_k=${topK}`,
+  );
+  const incoming = await input.ragClient.retrieve(
+    query,
+    input.groupId,
+    topK,
+  );
+  return {
+    retrieval: mergeRetrievals(input.retrieval, incoming),
+    searchHistory: [
+      ...input.searchHistory,
+      {
+        query,
+        topK,
+        ragUsed: incoming.ragUsed,
+        citationCount: incoming.citations.length,
+      },
+    ],
+  };
+}
 
-  for (let round = 0; round < MAX_RETRIEVE_ROUNDS; round += 1) {
-    const topK = RETRIEVE_TOP_K_SCHEDULE[round];
-    const query = nextRetrieveQuery(question, evaluationHistory.at(-1));
-    logger.log(
-      `retrieve round=${round + 1} query=${JSON.stringify(query)} group_id=${JSON.stringify(input.groupId ?? null)} top_k=${topK}`,
-    );
-    const incoming = await input.ragClient.retrieve(
-      query,
-      input.groupId,
-      topK,
-    );
-    retrieval = mergeRetrievals(retrieval, incoming);
-    searchHistory.push({
-      query,
-      topK,
-      ragUsed: incoming.ragUsed,
-      citationCount: incoming.citations.length,
-    });
-    const evaluation = await input.evaluator.evaluate({
-      question,
-      citations: retrieval.citations,
-      searchHistory: [...searchHistory],
-      evaluationHistory: [...evaluationHistory],
-      signal: input.signal,
-    });
-    evaluationHistory.push(evaluation);
-    logger.log(`evaluate round=${round + 1} ${JSON.stringify(evaluation)}`);
-    if (evaluation.sufficient) {
-      break;
-    }
-  }
+export async function runEvaluateRound(input: {
+  evaluator: RetrieveSufficiencyEvaluatorPort;
+  question: string;
+  retrieval: RagRetrieveResult;
+  searchHistory: SearchHistoryEntry[];
+  evaluationHistory: SufficiencyEvaluation[];
+  signal?: AbortSignal;
+}): Promise<{ evaluationHistory: SufficiencyEvaluation[] }> {
+  const evaluation = await input.evaluator.evaluate({
+    question: input.question,
+    citations: input.retrieval.citations,
+    searchHistory: [...input.searchHistory],
+    evaluationHistory: [...input.evaluationHistory],
+    signal: input.signal,
+  });
+  logger.log(
+    `evaluate round=${input.searchHistory.length} ${JSON.stringify(evaluation)}`,
+  );
+  return {
+    evaluationHistory: [...input.evaluationHistory, evaluation],
+  };
+}
 
-  return { retrieval, searchHistory, evaluationHistory };
+export function routeAfterEvaluate(input: {
+  evaluationHistory: SufficiencyEvaluation[];
+  searchHistory: SearchHistoryEntry[];
+}): 'retrieve' | 'answer' {
+  const last = input.evaluationHistory.at(-1);
+  if (last?.sufficient) {
+    return 'answer';
+  }
+  if (input.searchHistory.length >= MAX_RETRIEVE_ROUNDS) {
+    return 'answer';
+  }
+  return 'retrieve';
 }

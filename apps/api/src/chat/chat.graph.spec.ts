@@ -137,7 +137,130 @@ describe('createChatGraph', () => {
     ).toBe(false);
   });
 
-  it('streams answer tokens from the llm node when callbacks are provided', async () => {
+  async function visitedNodes(
+    graph: ReturnType<typeof createChatGraph>,
+    input: Record<string, unknown>,
+  ): Promise<string[]> {
+    const names: string[] = [];
+    const stream = await graph.stream(input, { streamMode: 'updates' });
+    for await (const update of stream) {
+      names.push(...Object.keys(update));
+    }
+    return names;
+  }
+
+  it('visits retrieve, evaluate, then answer as graph nodes', async () => {
+    const deps = createDeps();
+    const graph = createChatGraph(deps);
+
+    const nodes = await visitedNodes(graph, {
+      requestMessages: [{ role: ChatRole.User, content: '연차 며칠이야?' }],
+      historyEnabled: false,
+    });
+
+    expect(nodes).toEqual([
+      'load_history',
+      'prepare',
+      'retrieve',
+      'evaluate',
+      'answer',
+    ]);
+    expect(deps.ragClient.retrieve).toHaveBeenCalledTimes(1);
+    expect(deps.evaluator.evaluate).toHaveBeenCalledTimes(1);
+    expect(deps.model.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns to retrieve when evaluation is insufficient', async () => {
+    const deps = createDeps();
+    (deps.evaluator.evaluate as jest.Mock)
+      .mockResolvedValueOnce({
+        sufficient: false,
+        missing: ['B의 적용 조건', 'B의 예외 사항'],
+        confidence: 0.72,
+      })
+      .mockResolvedValueOnce({
+        sufficient: true,
+        missing: [],
+        confidence: 0.88,
+      });
+    const graph = createChatGraph(deps);
+
+    const nodes = await visitedNodes(graph, {
+      requestMessages: [{ role: ChatRole.User, content: '규정 B는 언제 적용돼?' }],
+      historyEnabled: false,
+    });
+
+    expect(nodes).toEqual([
+      'load_history',
+      'prepare',
+      'retrieve',
+      'evaluate',
+      'retrieve',
+      'evaluate',
+      'answer',
+    ]);
+    expect(deps.ragClient.retrieve).toHaveBeenNthCalledWith(
+      1,
+      '규정 B는 언제 적용돼?',
+      undefined,
+      5,
+    );
+    expect(deps.ragClient.retrieve).toHaveBeenNthCalledWith(
+      2,
+      'B의 적용 조건 B의 예외 사항',
+      undefined,
+      10,
+    );
+    const evaluate = deps.evaluator.evaluate as jest.Mock;
+    expect(evaluate.mock.calls[1][0].searchHistory).toHaveLength(2);
+    expect(evaluate.mock.calls[1][0].evaluationHistory).toEqual([
+      {
+        sufficient: false,
+        missing: ['B의 적용 조건', 'B의 예외 사항'],
+        confidence: 0.72,
+      },
+    ]);
+  });
+
+  it('stops retrieve after three rounds even if still insufficient', async () => {
+    const deps = createDeps();
+    (deps.evaluator.evaluate as jest.Mock).mockResolvedValue({
+      sufficient: false,
+      missing: ['더 필요'],
+      confidence: 0.3,
+    });
+    const graph = createChatGraph(deps);
+
+    const nodes = await visitedNodes(graph, {
+      requestMessages: [{ role: ChatRole.User, content: '아이작 예산' }],
+      groupId: 'team-a',
+      historyEnabled: false,
+    });
+
+    expect(nodes.filter((name) => name === 'retrieve')).toHaveLength(3);
+    expect(nodes.filter((name) => name === 'evaluate')).toHaveLength(3);
+    expect(nodes.at(-1)).toBe('answer');
+    expect(deps.ragClient.retrieve).toHaveBeenNthCalledWith(
+      1,
+      '아이작 예산',
+      'team-a',
+      5,
+    );
+    expect(deps.ragClient.retrieve).toHaveBeenNthCalledWith(
+      2,
+      '더 필요',
+      'team-a',
+      10,
+    );
+    expect(deps.ragClient.retrieve).toHaveBeenNthCalledWith(
+      3,
+      '더 필요',
+      'team-a',
+      20,
+    );
+  });
+
+  it('streams answer tokens from the answer node when callbacks are provided', async () => {
     async function* tokenStream() {
       yield { content: 'Hel' };
       yield { content: 'lo' };

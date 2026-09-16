@@ -25,7 +25,7 @@ retrieve 첫 `query`는 마지막 user 원문입니다. 추가 검색은 평가�
 
 ### 파이프라인 (`POST /chat`, `POST /chat/stream`)
 
-`session_id`가 있을 때: **append 가능 여부 검사(서비스) → LangGraph(`load_history → prepare → llm`) → 성공 시 이번 user+assistant append(서비스)**. retrieve는 llm 노드의 retrieve-evaluate 루프다 ([ADR 0011](./0011-retrieve-sufficiency-evaluator.md)). 그래프 소유권은 [ADR 0009](./0009-langgraph-pipeline.md).
+`session_id`가 있을 때: **append 가능 여부 검사(서비스) → LangGraph(`load_history → prepare → retrieve → evaluate → answer`) → 성공 시 이번 user+assistant append(서비스)**. retrieve-evaluate는 그래프 노드다 ([ADR 0011](./0011-retrieve-sufficiency-evaluator.md)). 그래프 소유권은 [ADR 0009](./0009-langgraph-pipeline.md).
 
 삭제된 세션(410)·고정 `user_id` 불일치(409)는 기존 ADR 0006과 같습니다. 그 외 persist/로드 DB 오류는 best-effort(채팅은 계속, 기록만 건너뜀).
 

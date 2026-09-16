@@ -2,21 +2,15 @@ import {
   AIMessage,
   AIMessageChunk,
   BaseMessage,
-  HumanMessage,
   SystemMessage,
 } from '@langchain/core/messages';
 import { ChatOpenAI } from '@langchain/openai';
-import { RagRetrieveClient } from '../rag/rag-retrieve.client';
 import { RagRetrieveResult } from '../rag/rag.types';
 import {
   chunkString,
   extractStreamChunkContent,
   isAbortError,
 } from './sse';
-import {
-  RetrieveSufficiencyEvaluatorPort,
-  runRetrieveEvaluateLoop,
-} from './retrieve-evaluate-loop';
 
 const STREAM_FALLBACK_CHUNK_SIZE = 32;
 
@@ -24,39 +18,35 @@ type BoundLlm = Pick<ChatOpenAI, 'invoke' | 'stream'>;
 
 export async function runAnswerWithRetrieveTool(input: {
   model: Pick<ChatOpenAI, 'invoke'>;
-  evaluator: RetrieveSufficiencyEvaluatorPort;
-  ragClient: Pick<RagRetrieveClient, 'retrieve'>;
   messages: BaseMessage[];
-  groupId?: string;
+  retrieval: RagRetrieveResult;
   signal?: AbortSignal;
 }): Promise<{ content: string; retrieval: RagRetrieveResult }> {
-  const { retrieval, answerMessages } = await prepareAnswerMessages(input);
-  const result = await input.model.invoke(answerMessages, {
-    signal: input.signal,
-  });
+  const result = await input.model.invoke(
+    withRetrievedContext(input.messages, input.retrieval),
+    { signal: input.signal },
+  );
   return {
     content: contentToText(toAIMessage(result).content),
-    retrieval,
+    retrieval: input.retrieval,
   };
 }
 
 export async function streamAnswerWithRetrieveTool(input: {
   model: Pick<ChatOpenAI, 'invoke' | 'stream'>;
-  evaluator: RetrieveSufficiencyEvaluatorPort;
-  ragClient: Pick<RagRetrieveClient, 'retrieve'>;
   messages: BaseMessage[];
-  groupId?: string;
+  retrieval: RagRetrieveResult;
   signal?: AbortSignal;
   onMeta: (retrieval: RagRetrieveResult) => void;
   onDelta: (content: string) => void;
 }): Promise<{ content: string; retrieval: RagRetrieveResult }> {
-  const { retrieval, answerMessages } = await prepareAnswerMessages(input);
+  const answerMessages = withRetrievedContext(input.messages, input.retrieval);
   let metaSent = false;
   const sendMeta = () => {
     if (metaSent) {
       return;
     }
-    input.onMeta(retrieval);
+    input.onMeta(input.retrieval);
     metaSent = true;
   };
 
@@ -80,30 +70,10 @@ export async function streamAnswerWithRetrieveTool(input: {
       input.onDelta(piece);
     }
   }
-  return { content: pieces.join(''), retrieval };
+  return { content: pieces.join(''), retrieval: input.retrieval };
 }
 
-async function prepareAnswerMessages(input: {
-  evaluator: RetrieveSufficiencyEvaluatorPort;
-  ragClient: Pick<RagRetrieveClient, 'retrieve'>;
-  messages: BaseMessage[];
-  groupId?: string;
-  signal?: AbortSignal;
-}): Promise<{ retrieval: RagRetrieveResult; answerMessages: BaseMessage[] }> {
-  const looped = await runRetrieveEvaluateLoop({
-    ragClient: input.ragClient,
-    evaluator: input.evaluator,
-    question: lastHumanMessageText(input.messages),
-    groupId: input.groupId,
-    signal: input.signal,
-  });
-  return {
-    retrieval: looped.retrieval,
-    answerMessages: withRetrievedContext(input.messages, looped.retrieval),
-  };
-}
-
-function withRetrievedContext(
+export function withRetrievedContext(
   messages: BaseMessage[],
   retrieval: RagRetrieveResult,
 ): BaseMessage[] {
@@ -118,16 +88,6 @@ function withRetrievedContext(
     ];
   }
   return [new SystemMessage(block), ...messages];
-}
-
-function lastHumanMessageText(messages: BaseMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    if (messages[i] instanceof HumanMessage) {
-      const content = messages[i].content;
-      return typeof content === 'string' ? content.trim() : '';
-    }
-  }
-  return '';
 }
 
 async function collectLlmRound(
