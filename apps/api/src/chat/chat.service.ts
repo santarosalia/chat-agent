@@ -13,12 +13,12 @@ import {
   createChatGraph,
   toLangChainMessages,
 } from './chat.graph';
-import { streamAnswerWithRetrieveTool } from './answer-with-retrieve-tool';
-import { RetrieveSufficiencyEvaluator } from './retrieve-sufficiency-evaluator.service';
 import {
-  ChatRequestDto,
-  DEFAULT_RAG_TOP_K,
-} from './dto/chat-request.dto';
+  runAnswerWithRetrieveTool,
+  streamAnswerWithRetrieveTool,
+} from './answer-with-retrieve-tool';
+import { RetrieveSufficiencyEvaluator } from './retrieve-sufficiency-evaluator.service';
+import { ChatRequestDto } from './dto/chat-request.dto';
 import { ChatResponseDto } from './dto/chat-response.dto';
 import { ChatMessageDto, ChatRole } from './dto/chat-message.dto';
 import {
@@ -32,7 +32,6 @@ export class ChatService {
   private readonly logger = new Logger(ChatService.name);
   private readonly model: ChatOpenAI;
   private readonly graph: ReturnType<typeof createChatGraph>;
-  private readonly prepareGraph: ReturnType<typeof createChatGraph>;
 
   constructor(
     private readonly config: ConfigService,
@@ -47,25 +46,26 @@ export class ChatService {
       },
       model: this.config.get<string>('VLLM_MODEL') ?? 'gpt-4o-mini',
     });
-    const deps = {
-      model: this.model,
-      ragClient: this.ragClient,
+    this.graph = createChatGraph({
       chatHistory: this.chatHistory,
-      config: this.config,
-      evaluator: this.evaluator,
-    };
-    this.graph = createChatGraph(deps);
-    this.prepareGraph = createChatGraph(deps, { includeLlm: false });
+    });
   }
 
   async chat(request: ChatRequestDto): Promise<ChatResponseDto> {
     const historyEnabled = await this.ensureHistoryAllowed(request);
-    const result = await this.graph.invoke(
+    const prepared = await this.graph.invoke(
       toChatGraphInput(request, historyEnabled),
     );
+    const answered = await runAnswerWithRetrieveTool({
+      model: this.model,
+      evaluator: this.evaluator,
+      ragClient: this.ragClient,
+      messages: toLangChainMessages(prepared.truncatedMessages),
+      groupId: request.group_id,
+    });
     const response = this.buildResponse(
-      result.retrieval,
-      result.response ?? '',
+      answered.retrieval,
+      answered.content,
     );
     await this.persistTurnIfRequested(request, response, historyEnabled);
     return response;
@@ -79,7 +79,7 @@ export class ChatService {
     let historyEnabled = false;
     try {
       historyEnabled = await this.ensureHistoryAllowed(request);
-      const prepared = await this.prepareGraph.invoke(
+      const prepared = await this.graph.invoke(
         toChatGraphInput(request, historyEnabled),
         { signal },
       );
@@ -223,7 +223,6 @@ export function toChatGraphInput(
     requestMessages: request.messages,
     sessionId: request.session_id,
     groupId: request.group_id,
-    topK: request.top_k ?? DEFAULT_RAG_TOP_K,
     historyEnabled,
   };
 }

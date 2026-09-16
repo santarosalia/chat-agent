@@ -1,5 +1,4 @@
 import { Logger } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import {
   AIMessage,
   BaseMessage,
@@ -7,22 +6,10 @@ import {
   SystemMessage,
 } from "@langchain/core/messages";
 import { END, START, StateGraph, Annotation } from "@langchain/langgraph";
-import { ChatOpenAI } from "@langchain/openai";
 import { ChatHistoryService } from "../chat-history/chat-history.service";
-import { RagRetrieveClient } from "../rag/rag-retrieve.client";
-import { RagRetrieveResult } from "../rag/rag.types";
 import { truncateMessagesForLlm } from "./context-truncate";
 import { ChatMessageDto, ChatRole } from "./dto/chat-message.dto";
-import { DEFAULT_RAG_TOP_K } from "./dto/chat-request.dto";
 import { withAnswerSystemPrompt } from "./answer-system-prompt";
-import { runAnswerWithRetrieveTool } from "./answer-with-retrieve-tool";
-import { RetrieveSufficiencyEvaluatorPort } from "./retrieve-evaluate-loop";
-
-const emptyRetrieval = (): RagRetrieveResult => ({
-  ragUsed: false,
-  citations: [],
-  contextBlock: null,
-});
 
 const ChatState = Annotation.Root({
   requestMessages: Annotation<ChatMessageDto[]>({
@@ -37,10 +24,6 @@ const ChatState = Annotation.Root({
     reducer: (_, next) => next,
     default: () => undefined,
   }),
-  topK: Annotation<number>({
-    reducer: (_, next) => next,
-    default: () => DEFAULT_RAG_TOP_K,
-  }),
   historyEnabled: Annotation<boolean>({
     reducer: (_, next) => next,
     default: () => false,
@@ -49,32 +32,16 @@ const ChatState = Annotation.Root({
     reducer: (_, next) => next,
     default: () => [],
   }),
-  retrieval: Annotation<RagRetrieveResult>({
-    reducer: (_, next) => next,
-    default: () => emptyRetrieval(),
-  }),
   truncatedMessages: Annotation<ChatMessageDto[]>({
     reducer: (_, next) => next,
     default: () => [],
-  }),
-  response: Annotation<string | undefined>({
-    reducer: (_, next) => next,
-    default: () => undefined,
   }),
 });
 
 export type ChatGraphState = typeof ChatState.State;
 
 export interface ChatGraphDeps {
-  model: ChatOpenAI;
-  ragClient: RagRetrieveClient;
   chatHistory: Pick<ChatHistoryService, "listActiveMessages">;
-  config: ConfigService;
-  evaluator: RetrieveSufficiencyEvaluatorPort;
-}
-
-export interface ChatGraphOptions {
-  includeLlm?: boolean;
 }
 
 export function toLangChainMessages(messages: ChatMessageDto[]): BaseMessage[] {
@@ -126,13 +93,9 @@ async function resolveConversation(
   }
 }
 
-export function createChatGraph(
-  deps: ChatGraphDeps,
-  options: ChatGraphOptions = {}
-) {
-  const includeLlm = options.includeLlm !== false;
+export function createChatGraph(deps: ChatGraphDeps) {
   const logger = new Logger("ChatGraph");
-  const graph = new StateGraph(ChatState)
+  return new StateGraph(ChatState)
     .addNode("load_history", async (state: ChatGraphState) => ({
       conversation: await resolveConversation(
         state.requestMessages,
@@ -148,28 +111,7 @@ export function createChatGraph(
       ),
     }))
     .addEdge(START, "load_history")
-    .addEdge("load_history", "prepare");
-
-  if (includeLlm) {
-    return graph
-      .addNode("llm", async (state: ChatGraphState, config) => {
-        const result = await runAnswerWithRetrieveTool({
-          model: deps.model,
-          evaluator: deps.evaluator,
-          ragClient: deps.ragClient,
-          messages: toLangChainMessages(state.truncatedMessages),
-          groupId: state.groupId,
-          signal: config?.signal as AbortSignal | undefined,
-        });
-        return {
-          response: result.content,
-          retrieval: result.retrieval,
-        };
-      })
-      .addEdge("prepare", "llm")
-      .addEdge("llm", END)
-      .compile();
-  }
-
-  return graph.addEdge("prepare", END).compile();
+    .addEdge("load_history", "prepare")
+    .addEdge("prepare", END)
+    .compile();
 }
