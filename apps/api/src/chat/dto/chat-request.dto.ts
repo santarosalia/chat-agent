@@ -38,7 +38,7 @@ export class ChatRequestDto {
 
   @ApiPropertyOptional({
     description:
-      '검색할 청크 개수. group_id 유무와 관계없이 retrieve에 전달됩니다 (생략 시 기본값 5)',
+      '검색할 청크 개수(요청 필드). retrieve 실제 top_k는 평가기 루프 5→10→20이며 이 값은 스케줄을 바꾸지 않습니다',
     example: 5,
     minimum: 1,
   })

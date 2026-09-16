@@ -9,7 +9,7 @@ import { LLM_INPUT_MAX_MESSAGES } from './context-truncate';
 import { ChatHistoryService } from '../chat-history/chat-history.service';
 import { ChatService, getLastUserMessageContent } from './chat.service';
 import { ChatRole } from './dto/chat-message.dto';
-import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
+import { RetrieveSufficiencyEvaluator } from './retrieve-sufficiency-evaluator.service';
 
 const mockStream = jest.fn();
 const mockLlmInvoke = jest
@@ -20,6 +20,9 @@ jest.mock('@langchain/openai', () => ({
   ChatOpenAI: jest.fn().mockImplementation(() => ({
     stream: mockStream,
     invoke: mockLlmInvoke,
+    bindTools: jest.fn().mockImplementation(function bindTools() {
+      return this;
+    }),
   })),
 }));
 
@@ -81,35 +84,26 @@ describe('ChatService', () => {
     };
   }
 
-  function createRewriterMock(
-    rewritten?: string,
-  ): Pick<RetrieveQueryRewriter, 'rewrite'> {
+  function sufficientEvaluator(): RetrieveSufficiencyEvaluator {
     return {
-      rewrite: jest.fn(async (messages) => {
-        if (rewritten != null) {
-          return rewritten;
-        }
-        const last = [...messages]
-          .reverse()
-          .find((message) => message.role === ChatRole.User);
-        return last?.content ?? '';
+      evaluate: jest.fn().mockResolvedValue({
+        sufficient: true,
+        missing: [],
+        confidence: 1,
       }),
-    };
+    } as unknown as RetrieveSufficiencyEvaluator;
   }
 
-  function createService(
-    config: ConfigService = createConfig(),
-    rewriter: Pick<RetrieveQueryRewriter, 'rewrite'> = createRewriterMock(),
-  ) {
+  function createService(config: ConfigService = createConfig()) {
     return new ChatService(
       config,
       new RagRetrieveClient(config),
       createChatHistoryMock() as ChatHistoryService,
-      rewriter as RetrieveQueryRewriter,
+      sufficientEvaluator(),
     );
   }
 
-  it('returns rag_used true with citations when RAG API returns citations', async () => {
+  it('returns rag_used true with citations after retrieve-evaluate', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -169,7 +163,7 @@ describe('ChatService', () => {
     expect(body.top_k).toBe(5);
   });
 
-  it('passes request top_k to retrieve when provided', async () => {
+  it('uses scheduled top_k 5 on the first retrieve even when request top_k is 10', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -185,10 +179,10 @@ describe('ChatService', () => {
 
     expect(JSON.parse(
       (global.fetch as jest.Mock).mock.calls[0][1].body as string,
-    ).top_k).toBe(10);
+    ).top_k).toBe(5);
   });
 
-  it('retrieves with a rewritten query after loading session history', async () => {
+  it('retrieves with the last user query after loading session history', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -200,12 +194,11 @@ describe('ChatService', () => {
       { role: ChatRole.User, content: '직원 핸드북에는 무엇이 있나요?' },
       { role: ChatRole.Assistant, content: '연차 규정이 있습니다.' },
     ]);
-    const rewriter = createRewriterMock('직원 핸드북 연차 일수');
     const service = new ChatService(
       createConfig(),
       new RagRetrieveClient(createConfig()),
       history as ChatHistoryService,
-      rewriter as RetrieveQueryRewriter,
+      sufficientEvaluator(),
     );
 
     await service.chat({
@@ -213,18 +206,13 @@ describe('ChatService', () => {
       messages: [{ role: ChatRole.User, content: '그건 며칠인가요?' }],
     });
 
-    expect(rewriter.rewrite).toHaveBeenCalledWith([
-      { role: ChatRole.User, content: '직원 핸드북에는 무엇이 있나요?' },
-      { role: ChatRole.Assistant, content: '연차 규정이 있습니다.' },
-      { role: ChatRole.User, content: '그건 며칠인가요?' },
-    ]);
     expect(
       JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body as string)
         .query,
-    ).toBe('직원 핸드북 연차 일수');
+    ).toBe('그건 며칠인가요?');
   });
 
-  it('returns rag_used false without citations when RAG API returns empty citations', async () => {
+  it('returns rag_used false without citations when seeded retrieve is empty', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -239,7 +227,7 @@ describe('ChatService', () => {
 
     expect(JSON.parse(
       (global.fetch as jest.Mock).mock.calls[0][1].body as string,
-    ).group_id).toBe('team-a');
+    ).query).toBe('Hello');
     expect(response).toEqual({
       message: { role: 'assistant', content: 'Assistant reply' },
       rag_used: false,
@@ -247,7 +235,7 @@ describe('ChatService', () => {
     expect(response.citations).toBeUndefined();
   });
 
-  it('truncates LLM input after RAG inject while retrieve uses last user as-is', async () => {
+  it('truncates LLM input then seeds retrieve with the last user query', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -266,10 +254,9 @@ describe('ChatService', () => {
     const service = createService();
     await service.chat({ messages, group_id: 'team-a' });
 
-    const retrieveBody = JSON.parse(
+    expect(JSON.parse(
       (global.fetch as jest.Mock).mock.calls[0][1].body as string,
-    );
-    expect(retrieveBody.query).toBe('retrieve and answer this');
+    ).query).toBe('retrieve and answer this');
 
     const llmMessages = mockLlmInvoke.mock.calls[0][0] as Array<{
       content: string;
@@ -282,18 +269,12 @@ describe('ChatService', () => {
   });
 
   it('streamChat emits meta before delta and done in order', async () => {
-    async function* tokenStream() {
-      yield { content: 'Hel' };
-      yield { content: 'lo' };
-    }
-    mockStream.mockResolvedValue(tokenStream());
-
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: async () =>
         buildRagRetrieveResponse(
-          [{ filename: 'doc.pdf', page: 2, snippet: 'ctx' }],
+          [{ filename: 'doc.pdf', page: 2, snippet: 'ctx', score: 0.91 }],
           { query: 'Hi' },
         ),
     });
@@ -314,20 +295,51 @@ describe('ChatService', () => {
     expect(deltaIndex).toBeGreaterThan(metaIndex);
     expect(doneIndex).toBeGreaterThan(deltaIndex);
     expect(joined).toContain('"rag_used":true');
-    expect(joined).toContain('"content":"Hel"');
-    expect(joined).toContain('"content":"Hello"');
+    expect(joined).toContain('Assistant reply');
     expect(joined.slice(doneIndex)).not.toContain('"rag_used"');
     expect(joined.slice(doneIndex)).not.toContain('"citations"');
   });
 
-  it('streamChat emits error without duplicate deltas when stream fails after partial output', async () => {
-    async function* failingStream() {
-      yield { content: 'partial' };
-      throw new Error('stream broke');
+  it('streamChat streams answer tokens after retrieve', async () => {
+    async function* tokenStream() {
+      yield { content: 'Hel' };
+      yield { content: 'lo' };
     }
-    mockStream.mockResolvedValue(failingStream());
-    mockLlmInvoke.mockResolvedValue({ content: 'full fallback' });
+    mockStream.mockResolvedValue(tokenStream());
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () =>
+        buildRagRetrieveResponse(
+          [{ filename: 'doc.pdf', page: 2, snippet: 'ctx', score: 0.91 }],
+          { query: 'Hi' },
+        ),
+    });
 
+    const service = createService();
+    const chunks: string[] = [];
+    await service.streamChat(
+      { messages: [{ role: ChatRole.User, content: 'Hi' }] },
+      (chunk) => chunks.push(chunk),
+    );
+
+    const joined = chunks.join('');
+    const metaIndex = joined.indexOf('event: meta');
+    const firstDelta = joined.indexOf('"content":"Hel"');
+    expect(metaIndex).toBeGreaterThanOrEqual(0);
+    expect(firstDelta).toBeGreaterThan(metaIndex);
+    expect(joined).toContain('"content":"lo"');
+    expect(joined).toContain('"rag_used":true');
+    expect(joined).toContain('event: done');
+    expect(joined).toContain('"content":"Hello"');
+  });
+
+  it('streamChat streams tokens after the seeded retrieve', async () => {
+    async function* tokenStream() {
+      yield { content: 'Hel' };
+      yield { content: 'lo' };
+    }
+    mockStream.mockResolvedValue(tokenStream());
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -342,17 +354,62 @@ describe('ChatService', () => {
     );
 
     const joined = chunks.join('');
+    expect(joined.indexOf('event: meta')).toBeGreaterThanOrEqual(0);
+    expect(joined.indexOf('"content":"Hel"')).toBeGreaterThan(
+      joined.indexOf('event: meta'),
+    );
+    expect(joined).toContain('"content":"lo"');
+    expect(joined).toContain('"rag_used":false');
     expect(mockLlmInvoke).not.toHaveBeenCalled();
-    expect(joined).toContain('event: meta');
-    expect(joined).toContain('"content":"partial"');
-    expect((joined.match(/event: delta/g) ?? []).length).toBe(1);
-    expect(joined).not.toContain('full fallback');
-    expect(joined).toContain('event: error');
-    expect(joined).not.toContain('event: done');
+  });
+
+  it('streamChat emits the first answer token before the LLM stream finishes', async () => {
+    let releaseNextToken: (() => void) | undefined;
+    const nextToken = new Promise<void>((resolve) => {
+      releaseNextToken = resolve;
+    });
+    async function* tokenStream() {
+      yield { content: 'Hel' };
+      await nextToken;
+      yield { content: 'lo' };
+    }
+    mockStream.mockResolvedValue(tokenStream());
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => buildRagRetrieveResponse([]),
+    });
+
+    const service = createService();
+    const chunks: string[] = [];
+    const finished = service.streamChat(
+      { messages: [{ role: ChatRole.User, content: 'Hi' }] },
+      (chunk) => chunks.push(chunk),
+    );
+
+    const started = Date.now();
+    while (!chunks.join('').includes('"content":"Hel"')) {
+      if (Date.now() - started > 1000) {
+        throw new Error('first token was not emitted while the stream is open');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    const duringStream = chunks.join('');
+    expect(duringStream).toContain('event: meta');
+    expect(duringStream).toContain('"content":"Hel"');
+    expect(duringStream).not.toContain('"content":"lo"');
+    expect(duringStream).not.toContain('event: done');
+
+    releaseNextToken?.();
+    await finished;
+
+    const joined = chunks.join('');
+    expect(joined).toContain('"content":"lo"');
+    expect(joined).toContain('event: done');
   });
 
   it('streamChat emits error without done on LLM failure', async () => {
-    mockStream.mockRejectedValue(new Error('LLM down'));
     mockLlmInvoke.mockRejectedValue(new Error('LLM down'));
 
     global.fetch = jest.fn().mockResolvedValue({
@@ -373,13 +430,15 @@ describe('ChatService', () => {
     expect(joined).not.toContain('event: done');
   });
 
-  it('streamChat omits done when aborted mid-stream', async () => {
-    async function* tokenStream() {
-      yield { content: 'partial' };
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      yield { content: 'more' };
-    }
-    mockStream.mockResolvedValue(tokenStream());
+  it('streamChat omits done when aborted before the answer finishes', async () => {
+    mockLlmInvoke.mockImplementation(
+      (_messages: unknown, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          });
+        }),
+    );
 
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
@@ -401,17 +460,12 @@ describe('ChatService', () => {
     await streamPromise;
 
     const joined = chunks.join('');
-    expect(joined).toContain('event: meta');
+    expect(joined).not.toContain('event: meta');
     expect(joined).not.toContain('event: done');
     expect(joined).not.toContain('event: error');
   });
 
   it('streamChat puts rag metadata only in meta event', async () => {
-    async function* tokenStream() {
-      yield { content: 'Hel' };
-      yield { content: 'lo' };
-    }
-    mockStream.mockResolvedValue(tokenStream());
 
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
@@ -438,12 +492,7 @@ describe('ChatService', () => {
     expect(joined).toContain('event: done');
   });
 
-  it('streamChat meta reflects rag_used false on RAG fallback', async () => {
-    async function* tokenStream() {
-      yield { content: 'ok' };
-    }
-    mockStream.mockResolvedValue(tokenStream());
-
+  it('streamChat meta reflects rag_used false when seeded retrieve is empty', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -463,7 +512,7 @@ describe('ChatService', () => {
     expect(joined).not.toContain('"citations"');
   });
 
-  it('returns rag_used false when RAG API responds with legacy results field only', async () => {
+  it('returns rag_used false when seeded retrieve uses a legacy results body', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -476,9 +525,8 @@ describe('ChatService', () => {
     const service = createService();
     const response = await service.chat({
       messages: [{ role: ChatRole.User, content: 'What is NestJS?' }],
-      group_id: 'team-a',
     });
-
+    expect(global.fetch).toHaveBeenCalled();
     expect(response.rag_used).toBe(false);
     expect(response.citations).toBeUndefined();
   });

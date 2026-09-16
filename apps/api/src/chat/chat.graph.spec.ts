@@ -6,8 +6,8 @@ import { RagRetrieveResult } from '../rag/rag.types';
 import { LLM_INPUT_MAX_MESSAGES } from './context-truncate';
 import { createChatGraph, ChatGraphDeps } from './chat.graph';
 import { ChatRole } from './dto/chat-message.dto';
-import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
 import { ANSWER_SYSTEM_PROMPT } from './answer-system-prompt';
+import { RetrieveSufficiencyEvaluatorPort } from './retrieve-evaluate-loop';
 
 describe('createChatGraph', () => {
   const emptyRetrieval: RagRetrieveResult = {
@@ -16,6 +16,16 @@ describe('createChatGraph', () => {
     contextBlock: null,
   };
 
+  function sufficientEvaluator(): RetrieveSufficiencyEvaluatorPort {
+    return {
+      evaluate: jest.fn().mockResolvedValue({
+        sufficient: true,
+        missing: [],
+        confidence: 1,
+      }),
+    };
+  }
+
   function createDeps(overrides: Partial<ChatGraphDeps> = {}): ChatGraphDeps {
     const ragClient = {
       retrieve: jest.fn().mockResolvedValue(emptyRetrieval),
@@ -23,17 +33,8 @@ describe('createChatGraph', () => {
     const chatHistory = {
       listActiveMessages: jest.fn().mockResolvedValue([]),
     };
-    const queryRewriter = {
-      rewrite: jest.fn(async (messages: Array<{ role: string; content: string }>) => {
-        const last = [...messages]
-          .reverse()
-          .find((message) => message.role === ChatRole.User);
-        return last?.content ?? '';
-      }),
-    };
-    const model = {
-      invoke: jest.fn().mockResolvedValue({ content: 'Assistant reply' }),
-    };
+    const invoke = jest.fn().mockResolvedValue({ content: 'Assistant reply' });
+    const model = { invoke };
     const config = {
       get: (key: string) => {
         const values: Record<string, string> = {
@@ -48,21 +49,18 @@ describe('createChatGraph', () => {
       model: model as unknown as ChatOpenAI,
       ragClient: ragClient as unknown as RagRetrieveClient,
       chatHistory: chatHistory as unknown as ChatHistoryService,
-      queryRewriter: queryRewriter as unknown as RetrieveQueryRewriter,
       config: config as ConfigService,
+      evaluator: sufficientEvaluator(),
       ...overrides,
     };
   }
 
-  it('loads session history, rewrites the retrieve query, then calls the answer LLM', async () => {
+  it('loads session history then retrieves with the last user query', async () => {
     const deps = createDeps();
     (deps.chatHistory.listActiveMessages as jest.Mock).mockResolvedValue([
       { role: ChatRole.User, content: '직원 핸드북에는 무엇이 있나요?' },
       { role: ChatRole.Assistant, content: '연차 규정이 있습니다.' },
     ]);
-    (deps.queryRewriter.rewrite as jest.Mock).mockResolvedValue(
-      '직원 핸드북 연차 일수',
-    );
 
     const graph = createChatGraph(deps);
     const result = await graph.invoke({
@@ -75,13 +73,8 @@ describe('createChatGraph', () => {
     expect(deps.chatHistory.listActiveMessages).toHaveBeenCalledWith(
       '550e8400-e29b-41d4-a716-446655440000',
     );
-    expect(deps.queryRewriter.rewrite).toHaveBeenCalledWith([
-      { role: ChatRole.User, content: '직원 핸드북에는 무엇이 있나요?' },
-      { role: ChatRole.Assistant, content: '연차 규정이 있습니다.' },
-      { role: ChatRole.User, content: '그건 며칠인가요?' },
-    ]);
     expect(deps.ragClient.retrieve).toHaveBeenCalledWith(
-      '직원 핸드북 연차 일수',
+      '그건 며칠인가요?',
       undefined,
       5,
     );
@@ -101,17 +94,36 @@ describe('createChatGraph', () => {
     });
 
     expect(deps.chatHistory.listActiveMessages).not.toHaveBeenCalled();
-    expect(deps.ragClient.retrieve).toHaveBeenCalledWith('Hello', 'team-a', 10);
+    expect(deps.ragClient.retrieve).toHaveBeenCalledWith('Hello', 'team-a', 5);
   });
 
-  it('injects retrieved context and truncates before the answer LLM', async () => {
+  it('keeps citations from the retrieve-evaluate loop', async () => {
     const deps = createDeps();
     (deps.ragClient.retrieve as jest.Mock).mockResolvedValue({
       ragUsed: true,
-      citations: [{ filename: 'doc.pdf', page: 1, snippet: 'info' }],
-      contextBlock: '[Retrieved context]\n(doc.pdf p.1) info',
+      citations: [{ filename: 'doc.pdf', page: 1, snippet: '연차 15일' }],
+      contextBlock: '[Retrieved context]\n- (doc.pdf p.1) 연차 15일',
     });
 
+    const graph = createChatGraph(deps);
+    const result = await graph.invoke({
+      requestMessages: [{ role: ChatRole.User, content: '연차 며칠이야?' }],
+      groupId: 'team-a',
+      topK: 5,
+      historyEnabled: false,
+    });
+
+    expect(deps.ragClient.retrieve).toHaveBeenCalledWith(
+      '연차 며칠이야?',
+      'team-a',
+      5,
+    );
+    expect(result.response).toBe('Assistant reply');
+    expect(result.retrieval.ragUsed).toBe(true);
+  });
+
+  it('truncates conversation before the answer LLM', async () => {
+    const deps = createDeps();
     const droppable = Array.from({ length: LLM_INPUT_MAX_MESSAGES }, (_, i) => ({
       role: ChatRole.Assistant,
       content: `history-${i}`,
@@ -127,15 +139,11 @@ describe('createChatGraph', () => {
       historyEnabled: false,
     });
 
-    const llmMessages = (deps.model.invoke as jest.Mock).mock.calls[0][0];
+    const invoke = deps.model.invoke as jest.Mock;
+    const llmMessages = invoke.mock.calls[0][0];
     expect(llmMessages.length).toBeLessThanOrEqual(LLM_INPUT_MAX_MESSAGES);
     expect(llmMessages[0].content).toContain(ANSWER_SYSTEM_PROMPT);
-    expect(llmMessages[0].content).toContain('[Retrieved context]');
-    expect(
-      llmMessages.slice(1).some((message: { content: string }) =>
-        message.content === ANSWER_SYSTEM_PROMPT,
-      ),
-    ).toBe(false);
+    expect(llmMessages[0].content).not.toContain('(doc.pdf');
     expect(llmMessages[llmMessages.length - 1].content).toBe(
       'retrieve and answer this',
     );
@@ -144,7 +152,7 @@ describe('createChatGraph', () => {
     );
   });
 
-  it('prepare-only graph stops after retrieve and does not call the answer LLM', async () => {
+  it('prepare-only graph stops before retrieve and the answer LLM', async () => {
     const deps = createDeps();
     const graph = createChatGraph(deps, { includeLlm: false });
 
@@ -154,7 +162,7 @@ describe('createChatGraph', () => {
       historyEnabled: false,
     });
 
-    expect(deps.ragClient.retrieve).toHaveBeenCalled();
+    expect(deps.ragClient.retrieve).not.toHaveBeenCalled();
     expect(deps.model.invoke).not.toHaveBeenCalled();
     expect(result.response).toBeUndefined();
     expect(result.truncatedMessages).toEqual([

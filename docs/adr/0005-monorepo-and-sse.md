@@ -26,7 +26,7 @@ pnpm workspace로 재구성합니다.
 
 - **`POST /chat`**: 기존과 동일한 **비스트리밍 JSON** 계약 (`message`, `rag_used`, 선택적 `citations`). **변경 없음.**
 - **`POST /chat/stream`**: `Content-Type: text/event-stream`. 요청 본문은 `/chat`과 동일(`ChatRequestDto`).
-- 두 엔드포인트 모두 **동일 파이프라인**: LangGraph 노드 `load_history → rewrite → retrieve → prepare → llm` ([ADR 0009](./0009-langgraph-pipeline.md)). HTTP 계층은 세션 409/410 검사·SSE·append만 담당합니다. 세션 로드는 [ADR 0007](./0007-server-owned-session-context.md).
+- 두 엔드포인트 모두 **동일 파이프라인**: LangGraph 노드 `load_history → prepare → llm` ([ADR 0009](./0009-langgraph-pipeline.md)). retrieve-evaluate 루프 후 답변 LLM이 답합니다 ([ADR 0011](./0011-retrieve-sufficiency-evaluator.md)). HTTP 계층은 세션 409/410 검사·SSE·append만 담당합니다. 세션 로드는 [ADR 0007](./0007-server-owned-session-context.md).
 
 ### SSE 이벤트 순서 및 스키마
 
@@ -37,7 +37,7 @@ pnpm workspace로 재구성합니다.
 
 | event | data | 설명 |
 |-------|------|------|
-| `meta` | `{ "rag_used": boolean, "citations"?: [...] }` | retrieve **완료 직후** 1회. `rag_used`·`citations`는 **meta만** 소유. 폴백 시 `rag_used: false`, citations 생략. |
+| `meta` | `{ "rag_used": boolean, "citations"?: [...] }` | retrieve-evaluate 루프 **완료 직후** 1회. `rag_used`·`citations`는 **meta만** 소유. 결과가 없거나 폴백이면 `rag_used: false`, citations 생략. |
 | `delta` | `{ "content": string }` | assistant 텍스트 조각(토큰 또는 청크). 0회 이상. |
 | `done` | `{ "message"?: { "role":"assistant", "content": string } }` | **완료 신호** 전용. RAG 필드 없음. 선택적으로 최종 `message` 포함 가능(클라이언트는 `delta` 누적 또는 `message.content` 사용). |
 | `error` | `{ "message": string }` | 스트림 처리 중 런타임 오류. **`done` 없이** 종료. (요청 유효성 400은 일반 JSON HTTP 응답.) |
@@ -67,9 +67,9 @@ data: {"message":"LLM request failed"}
 
 ### LLM 스트리밍 정직성
 
-- **1순위**: prepare 그래프(llm 제외) 완료 후 LangChain `ChatOpenAI.stream()`으로 토큰/청크를 `delta`로 전달.
-- **폴백**: 스트림 API 실패 또는 빈 스트림 시 같은 준비된 메시지로 `ChatOpenAI.invoke` 결과를 고정 크기 청크로 나눠 `delta`를 emit한 뒤 `done` — **토큰 단위가 아닌 청크 스트리밍**임을 클라이언트는 인지해야 함. retrieve는 다시 호출하지 않음.
-- 파이프라인 오케스트레이션은 LangGraph가 소유합니다 ([ADR 0009](./0009-langgraph-pipeline.md)). SSE 토큰 스트리밍은 그래프 노드가 아니라 `ChatOpenAI.stream()`입니다.
+- prepare 그래프(llm 제외) 후 답변 LLM 도구 라운드를 돌립니다. `meta`는 citations가 정해진 뒤 1회입니다 ([ADR 0010](./0010-retrieve-as-answer-tool.md)).
+- 답변 턴은 LangChain `ChatOpenAI.stream()`으로 `delta`를 보냅니다. 스트림이 비거나 실패하고 아직 `delta`가 없으면 `invoke` 결과를 고정 크기 청크로 폴백합니다.
+- 도구 호출 턴의 토큰은 클라이언트로 보내지 않습니다. 도구 루프 중 `meta` 전에 LLM이 실패하면 `error`로 끝납니다.
 
 ### 클라이언트 연결 해제
 
@@ -97,7 +97,7 @@ API **`CORS_ORIGIN`**(기본 `http://localhost:3001`, 쉼표 구분 복수 가�
 
 - 단일 repo에서 API·테스트 UI를 함께 개발·실행할 수 있습니다.
 - `/chat` JSON 클라이언트는 영향 없이 SSE 소비자를 추가할 수 있습니다.
-- 스트림 소비자는 **`meta`에서 RAG 상태를 확정**하고, `delta`로 UX를 개선하며, **`done`은 완료만 알림**.
-- LLM 스트림 불가 환경에서는 청크 폴백으로 동작하지만 실시간성은 제한될 수 있습니다(문서화됨).
+- 스트림 소비자는 **`meta`에서 RAG 상태를 확정**하고, `delta`로 UX를 개선하며, **`done`은 완료만 알림**. 도구 루프 실패 시에는 `meta` 없이 `error`만 올 수 있습니다.
+- SSE `delta`는 답변 턴의 토큰입니다. 스트림 불가 시에만 청크 폴백합니다 ([ADR 0010](./0010-retrieve-as-answer-tool.md)).
 - 클라이언트 이탈 시 LLM 리소스 낭비를 줄입니다.
 - 프로덕션 프론트·인증은 v1 범위 밖입니다. 세션 기록은 API Postgres(`chat_agent`)입니다.

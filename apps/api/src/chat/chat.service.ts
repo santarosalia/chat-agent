@@ -11,25 +11,21 @@ import { RagRetrieveClient } from '../rag/rag-retrieve.client';
 import { RagRetrieveResult } from '../rag/rag.types';
 import {
   createChatGraph,
-  llmContentToText,
   toLangChainMessages,
 } from './chat.graph';
+import { streamAnswerWithRetrieveTool } from './answer-with-retrieve-tool';
+import { RetrieveSufficiencyEvaluator } from './retrieve-sufficiency-evaluator.service';
 import {
   ChatRequestDto,
   DEFAULT_RAG_TOP_K,
 } from './dto/chat-request.dto';
 import { ChatResponseDto } from './dto/chat-response.dto';
 import { ChatMessageDto, ChatRole } from './dto/chat-message.dto';
-import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
 import {
-  chunkString,
-  extractStreamChunkContent,
   formatSseEvent,
   isAbortError,
   SseMetaPayload,
 } from './sse';
-
-const STREAM_FALLBACK_CHUNK_SIZE = 32;
 
 @Injectable()
 export class ChatService {
@@ -42,7 +38,7 @@ export class ChatService {
     private readonly config: ConfigService,
     private readonly ragClient: RagRetrieveClient,
     private readonly chatHistory: ChatHistoryService,
-    private readonly queryRewriter: RetrieveQueryRewriter,
+    private readonly evaluator: RetrieveSufficiencyEvaluator,
   ) {
     this.model = new ChatOpenAI({
       apiKey: this.config.get<string>('VLLM_API_KEY'),
@@ -55,8 +51,8 @@ export class ChatService {
       model: this.model,
       ragClient: this.ragClient,
       chatHistory: this.chatHistory,
-      queryRewriter: this.queryRewriter,
       config: this.config,
+      evaluator: this.evaluator,
     };
     this.graph = createChatGraph(deps);
     this.prepareGraph = createChatGraph(deps, { includeLlm: false });
@@ -91,18 +87,25 @@ export class ChatService {
         return;
       }
 
-      write(formatSseEvent('meta', this.buildMetaPayload(prepared.retrieval)));
-
-      const langChainMessages = toLangChainMessages(prepared.truncatedMessages);
-      const fullContent = await this.streamLlmContent(
-        langChainMessages,
-        write,
+      const answered = await streamAnswerWithRetrieveTool({
+        model: this.model,
+        evaluator: this.evaluator,
+        ragClient: this.ragClient,
+        messages: toLangChainMessages(prepared.truncatedMessages),
+        groupId: request.group_id,
         signal,
-      );
-
+        onMeta: (retrieval) => {
+          write(formatSseEvent('meta', this.buildMetaPayload(retrieval)));
+        },
+        onDelta: (content) => {
+          write(formatSseEvent('delta', { content }));
+        },
+      });
       if (signal?.aborted) {
         return;
       }
+
+      const fullContent = answered.content;
 
       write(
         formatSseEvent('done', {
@@ -114,9 +117,9 @@ export class ChatService {
         request,
         {
           message: { role: 'assistant', content: fullContent },
-          rag_used: prepared.retrieval.ragUsed,
-          citations: prepared.retrieval.ragUsed
-            ? prepared.retrieval.citations
+          rag_used: answered.retrieval.ragUsed,
+          citations: answered.retrieval.ragUsed
+            ? answered.retrieval.citations
             : undefined,
         },
         historyEnabled,
@@ -155,51 +158,6 @@ export class ChatService {
       payload.citations = retrieval.citations;
     }
     return payload;
-  }
-
-  private async streamLlmContent(
-    langChainMessages: ReturnType<typeof toLangChainMessages>,
-    write: (chunk: string) => void,
-    signal?: AbortSignal,
-  ): Promise<string> {
-    let anyDeltaEmitted = false;
-
-    try {
-      const stream = await this.model.stream(langChainMessages, { signal });
-      let fullContent = '';
-      for await (const chunk of stream) {
-        if (signal?.aborted) {
-          throw new DOMException('Stream aborted', 'AbortError');
-        }
-        const content = extractStreamChunkContent(chunk.content);
-        if (content) {
-          fullContent += content;
-          write(formatSseEvent('delta', { content }));
-          anyDeltaEmitted = true;
-        }
-      }
-      if (fullContent.length > 0) {
-        return fullContent;
-      }
-    } catch (error) {
-      if (isAbortError(error) || signal?.aborted) {
-        throw error;
-      }
-      if (anyDeltaEmitted) {
-        throw error;
-      }
-      // Zero deltas emitted: non-streaming LLM invoke fallback is allowed.
-    }
-
-    const result = await this.model.invoke(langChainMessages, { signal });
-    const fullContent = llmContentToText(result.content);
-    for (const content of chunkString(fullContent, STREAM_FALLBACK_CHUNK_SIZE)) {
-      if (signal?.aborted) {
-        throw new DOMException('Stream aborted', 'AbortError');
-      }
-      write(formatSseEvent('delta', { content }));
-    }
-    return fullContent;
   }
 
   async ensureHistoryAllowed(request: ChatRequestDto): Promise<boolean> {

@@ -2,7 +2,8 @@
 
 **Status:** Accepted  
 **Date:** 2026-09-11  
-**Supersedes:** ADR 0005의 “LangGraph는 단일 LLM 노드, v1에서 스트리밍 노드로 확장하지 않음”
+**Supersedes:** ADR 0005의 “LangGraph는 단일 LLM 노드, v1에서 스트리밍 노드로 확장하지 않음”  
+**Note:** `rewrite → retrieve → inject` 노드는 [ADR 0010](./0010-retrieve-as-answer-tool.md)이 대체했고, 도구 루프는 [ADR 0011](./0011-retrieve-sufficiency-evaluator.md)이 대체. 그래프는 `load_history → prepare → llm`이고 llm 노드가 retrieve-evaluate 후 답한다.
 
 ## Context
 
@@ -12,15 +13,13 @@
 
 **LangGraph가 채팅 파이프라인을 소유**합니다.
 
-노드: `load_history → rewrite → retrieve → prepare(inject+truncate) → llm`.
+노드: `load_history → prepare(system+truncate) → llm` ([ADR 0011](./0011-retrieve-sufficiency-evaluator.md)). llm 노드가 retrieve-evaluate 루프 후 답변 LLM을 호출합니다.
 
 - **`POST /chat`**: 전체 그래프 `invoke`.
-- **`POST /chat/stream`**: 같은 노드를 `includeLlm: false`로 컴파일한 prepare 그래프를 `invoke`한 뒤 `meta`를 보내고, 답변만 `ChatOpenAI.stream()`합니다. 스트림이 비면 `model.invoke`로 청크 폴백합니다. retrieve를 다시 돌리지 않습니다.
+- **`POST /chat/stream`**: prepare 그래프(`includeLlm: false`)를 `invoke`한 뒤 retrieve-evaluate를 돌리고, `meta` 다음 답변은 `ChatOpenAI.stream()`합니다.
 - **`ChatService`**: HTTP 어댑터. 409/410 사전 검사, SSE 매핑, abort, 성공 시 append.
-
-답변 LLM 노드와 리라이트 LLM은 별개입니다. 리라이트 실패 폴백(ADR 0008)은 rewriter가 유지합니다.
 
 ## Consequences
 
 - 파이프라인 추가 단계는 그래프 노드로 붙입니다.
-- SSE 토큰 스트리밍은 여전히 LangChain `stream()`이며, 그래프 노드 스트리밍으로 바꾸지 않습니다.
+- SSE `delta`는 그래프 노드 스트리밍이 아니라 답변 LLM `stream()`입니다. 스트림 실패 시에만 청크 폴백합니다.

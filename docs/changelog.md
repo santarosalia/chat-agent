@@ -1,5 +1,8 @@
 # Changelog
 
+- **v1.13** — retrieve 충분성 평가기를 분리한다 (ADR 0011). 검색·평가 이력을 들고 최대 3회 검색한다. `top_k`는 5 → 10 → 20. 평가기 `max_tokens` 200. 답변 LLM은 도구 없이 누적 citations로 답한다.
+- **v1.12** — 매 턴 마지막 user 쿼리로 retrieve를 한 번 먼저 하고, 부족하면 `retrieve_documents`로 재검색한다 (ADR 0010).
+- **v1.11** — 답변 LLM이 `retrieve_documents` 도구로 검색한다 (ADR 0010). `query`와 `top_k`를 모델이 고른다. 부족하면 `top_k`를 키워 최대 20번 다시 검색한다. 별도 리라이트는 쓰지 않는다. SSE는 도구 라운드 후 `meta`, 답변은 토큰 `stream()`.
 - **v1.10** — 답변 LLM에 문서 근거 시스템 프롬프트를 넣음. retrieve 컨텍스트는 같은 system 메시지에 합쳐 맨 앞에 둔다.
 - **v1.9** — citations에 retrieve `score`를 넣고, 테스트 UI 출처에 파일·페이지와 함께 표시.
 - **v1.8** — 채팅 파이프라인을 LangGraph 노드로 이동 (ADR 0009). `ChatService`는 SSE·세션 검사·append만 담당.

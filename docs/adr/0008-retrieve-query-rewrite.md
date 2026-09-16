@@ -1,6 +1,6 @@
 # ADR 0008: retrieve 전 대화 기반 쿼리 리라이트
 
-**Status:** Accepted  
+**Status:** Superseded by [ADR 0010](./0010-retrieve-as-answer-tool.md)  
 **Date:** 2026-09-11  
 **Supersedes:** ADR 0001의 “retrieve 쿼리는 마지막 user 원문만, 리라이트 금지”
 

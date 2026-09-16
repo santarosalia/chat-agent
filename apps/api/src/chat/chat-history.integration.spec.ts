@@ -11,7 +11,7 @@ import {
 } from './chat.service';
 import { ChatRole } from './dto/chat-message.dto';
 import { ANSWER_SYSTEM_PROMPT } from './answer-system-prompt';
-import { RetrieveQueryRewriter } from './retrieve-query-rewriter.service';
+import { RetrieveSufficiencyEvaluator } from './retrieve-sufficiency-evaluator.service';
 
 const mockStream = jest.fn();
 const mockLlmInvoke = jest
@@ -22,6 +22,9 @@ jest.mock('@langchain/openai', () => ({
   ChatOpenAI: jest.fn().mockImplementation(() => ({
     stream: mockStream,
     invoke: mockLlmInvoke,
+    bindTools: jest.fn().mockImplementation(function bindTools() {
+      return this;
+    }),
   })),
 }));
 
@@ -57,15 +60,14 @@ describe('ChatService chat history integration', () => {
     } as ConfigService;
   }
 
-  function createRewriter(): RetrieveQueryRewriter {
+  function sufficientEvaluator(): RetrieveSufficiencyEvaluator {
     return {
-      rewrite: jest.fn(async (messages: Array<{ role: string; content: string }>) => {
-        const last = [...messages]
-          .reverse()
-          .find((message) => message.role === ChatRole.User);
-        return last?.content ?? '';
+      evaluate: jest.fn().mockResolvedValue({
+        sufficient: true,
+        missing: [],
+        confidence: 1,
       }),
-    } as unknown as RetrieveQueryRewriter;
+    } as unknown as RetrieveSufficiencyEvaluator;
   }
 
   function createService() {
@@ -78,7 +80,7 @@ describe('ChatService chat history integration', () => {
       createConfig(),
       new RagRetrieveClient(createConfig()),
       chatHistory as unknown as ChatHistoryService,
-      createRewriter(),
+      sufficientEvaluator(),
     );
   }
 
@@ -119,9 +121,9 @@ describe('ChatService chat history integration', () => {
 
     expect(chatHistory.listActiveMessages).toHaveBeenCalledWith(sessionId);
     expect(
-      (mockLlmInvoke.mock.calls[0][0] as Array<{ content: string }>).map(
-        (message) => message.content,
-      ),
+      (mockLlmInvoke.mock.calls[0][0] as Array<{ content: string }>)
+        .map((message) => message.content)
+        .slice(0, 4),
     ).toEqual([ANSWER_SYSTEM_PROMPT, 'old question', 'old reply', 'follow up']);
     expect(
       JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body as string)
@@ -152,9 +154,9 @@ describe('ChatService chat history integration', () => {
     });
 
     expect(
-      (mockLlmInvoke.mock.calls[0][0] as Array<{ content: string }>).map(
-        (message) => message.content,
-      ),
+      (mockLlmInvoke.mock.calls[0][0] as Array<{ content: string }>)
+        .map((message) => message.content)
+        .slice(0, 4),
     ).toEqual([ANSWER_SYSTEM_PROMPT, 'stored question', 'stored reply', 'follow up']);
   });
 
@@ -198,7 +200,7 @@ describe('ChatService chat history integration', () => {
       createConfig(),
       new RagRetrieveClient(createConfig()),
       chatHistory as unknown as ChatHistoryService,
-      createRewriter(),
+      sufficientEvaluator(),
     );
 
     global.fetch = jest.fn();
@@ -214,12 +216,6 @@ describe('ChatService chat history integration', () => {
   });
 
   it('appends after successful stream done', async () => {
-    async function* tokenStream() {
-      yield { content: 'Hel' };
-      yield { content: 'lo' };
-    }
-    mockStream.mockResolvedValue(tokenStream());
-
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -239,18 +235,20 @@ describe('ChatService chat history integration', () => {
       expect.objectContaining({
         sessionId,
         userContent: 'Hi',
-        assistantContent: 'Hello',
+        assistantContent: 'Assistant reply',
       }),
     );
   });
 
   it('skips append on stream abort', async () => {
-    async function* tokenStream() {
-      yield { content: 'partial' };
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      yield { content: 'more' };
-    }
-    mockStream.mockResolvedValue(tokenStream());
+    mockLlmInvoke.mockImplementation(
+      (_messages: unknown, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          });
+        }),
+    );
 
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
@@ -291,7 +289,7 @@ describe('ChatService chat history integration', () => {
       createConfig(),
       new RagRetrieveClient(createConfig()),
       chatHistory as unknown as ChatHistoryService,
-      createRewriter(),
+      sufficientEvaluator(),
     );
 
     const response = await service.chat({
@@ -304,11 +302,6 @@ describe('ChatService chat history integration', () => {
   });
 
   it('does not emit error event when persist fails after stream done', async () => {
-    async function* tokenStream() {
-      yield { content: 'Hello' };
-    }
-    mockStream.mockResolvedValue(tokenStream());
-
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -324,7 +317,7 @@ describe('ChatService chat history integration', () => {
       createConfig(),
       new RagRetrieveClient(createConfig()),
       chatHistory as unknown as ChatHistoryService,
-      createRewriter(),
+      sufficientEvaluator(),
     );
 
     const chunks: string[] = [];
@@ -359,7 +352,7 @@ describe('ChatService chat history integration', () => {
       createConfig(),
       new RagRetrieveClient(createConfig()),
       chatHistory as unknown as ChatHistoryService,
-      createRewriter(),
+      sufficientEvaluator(),
     );
 
     const response = await service.chat({
@@ -386,7 +379,7 @@ describe('ChatService chat history integration', () => {
       createConfig(),
       new RagRetrieveClient(createConfig()),
       chatHistory as unknown as ChatHistoryService,
-      createRewriter(),
+      sufficientEvaluator(),
     );
 
     global.fetch = jest.fn();
@@ -401,7 +394,6 @@ describe('ChatService chat history integration', () => {
   });
 
   it('skips append on stream error', async () => {
-    mockStream.mockRejectedValue(new Error('LLM down'));
     mockLlmInvoke.mockRejectedValue(new Error('LLM down'));
 
     global.fetch = jest.fn().mockResolvedValue({

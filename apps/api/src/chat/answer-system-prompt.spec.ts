@@ -4,6 +4,15 @@ import {
   withAnswerSystemPrompt,
 } from './answer-system-prompt';
 
+describe('ANSWER_SYSTEM_PROMPT', () => {
+  it('tells the answer model to use retrieved context and not ask the user to search', () => {
+    expect(ANSWER_SYSTEM_PROMPT).toContain('[Retrieved context]');
+    expect(ANSWER_SYSTEM_PROMPT).toContain(
+      '사용자에게 다른 검색어를 물어보지 않는다',
+    );
+  });
+});
+
 describe('withAnswerSystemPrompt', () => {
   it('prepends the answer system prompt', () => {
     expect(
