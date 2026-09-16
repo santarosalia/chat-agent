@@ -9,7 +9,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { ChatHistoryService } from '../chat-history/chat-history.service';
 import { RagRetrieveClient } from '../rag/rag-retrieve.client';
 import { RagRetrieveResult } from '../rag/rag.types';
-import { createChatGraph } from './chat.graph';
+import { createChatGraph, dumpChatGraphMermaid } from './chat.graph';
 import { RetrieveSufficiencyEvaluator } from './retrieve-sufficiency-evaluator.service';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import { ChatResponseDto } from './dto/chat-response.dto';
@@ -45,6 +45,10 @@ export class ChatService {
       chatHistory: this.chatHistory,
       evaluator: this.evaluator,
     });
+  }
+
+  dumpGraphMermaid(): Promise<string> {
+    return dumpChatGraphMermaid(this.graph);
   }
 
   async chat(request: ChatRequestDto): Promise<ChatResponseDto> {

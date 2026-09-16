@@ -3,7 +3,7 @@ import { ChatHistoryService } from '../chat-history/chat-history.service';
 import { RagRetrieveClient } from '../rag/rag-retrieve.client';
 import { RagRetrieveResult } from '../rag/rag.types';
 import { LLM_INPUT_MAX_MESSAGES } from './context-truncate';
-import { createChatGraph, ChatGraphDeps } from './chat.graph';
+import { createChatGraph, ChatGraphDeps, dumpChatGraphMermaid } from './chat.graph';
 import { ChatRole } from './dto/chat-message.dto';
 import { ANSWER_SYSTEM_PROMPT } from './answer-system-prompt';
 import { RetrieveSufficiencyEvaluatorPort } from './retrieve-evaluate-loop';
@@ -285,5 +285,15 @@ describe('createChatGraph', () => {
     expect(onDelta.mock.calls.map((call) => call[0])).toEqual(['Hel', 'lo']);
     expect(result.response).toBe('Hello');
     expect(deps.model.invoke).not.toHaveBeenCalled();
+  });
+
+  it('dumps mermaid with retrieve, evaluate, and answer nodes', async () => {
+    const mermaid = await dumpChatGraphMermaid(createChatGraph(createDeps()));
+
+    expect(mermaid).toContain('load_history');
+    expect(mermaid).toContain('prepare');
+    expect(mermaid).toContain('retrieve');
+    expect(mermaid).toContain('evaluate');
+    expect(mermaid).toContain('answer');
   });
 });

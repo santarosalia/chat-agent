@@ -1,5 +1,6 @@
 # Changelog
 
+- **v1.14** — `GET /dev/graph`가 채팅 LangGraph mermaid를 덤프한다. `NODE_ENV=production`이면 404.
 - **v1.13** — retrieve 충분성 평가기를 분리한다 (ADR 0011). 검색·평가 이력을 들고 최대 3회 검색한다. `top_k`는 5 → 10 → 20. 평가기 `max_tokens` 200. 답변 LLM은 도구 없이 누적 citations로 답한다. 그래프는 `load_history → prepare → retrieve → evaluate → answer`이고 부족하면 retrieve로 돌아간다.
 - **v1.12** — 매 턴 마지막 user 쿼리로 retrieve를 한 번 먼저 하고, 부족하면 `retrieve_documents`로 재검색한다 (ADR 0010).
 - **v1.11** — 답변 LLM이 `retrieve_documents` 도구로 검색한다 (ADR 0010). `query`와 `top_k`를 모델이 고른다. 부족하면 `top_k`를 키워 최대 20번 다시 검색한다. 별도 리라이트는 쓰지 않는다. SSE는 도구 라운드 후 `meta`, 답변은 토큰 `stream()`.

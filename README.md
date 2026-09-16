@@ -6,7 +6,7 @@
 
 | 패키지 | 설명 |
 |--------|------|
-| `apps/api` | `POST /chat`, `POST /chat/stream`, `GET`/`DELETE /sessions/:id`, `GET /health` |
+| `apps/api` | `POST /chat`, `POST /chat/stream`, `GET`/`DELETE /sessions/:id`, `GET /health`, 개발용 `GET /dev/graph` |
 | `apps/web` | 로컬 API 테스트용 채팅 UI (`session_id`로 기록 조회·저장) |
 
 ## 빠른 시작
@@ -29,7 +29,7 @@ cp apps/web/.env.example apps/web/.env.local
 pnpm dev
 ```
 
-- API: [http://localhost:3000](http://localhost:3000) (Swagger: [http://localhost:3000/docs](http://localhost:3000/docs))
+- API: [http://localhost:3000](http://localhost:3000) (Swagger: [http://localhost:3000/docs](http://localhost:3000/docs), 그래프: [http://localhost:3000/dev/graph](http://localhost:3000/dev/graph))
 - Web: [http://localhost:3001](http://localhost:3001)
 
 개별 실행:
@@ -104,6 +104,7 @@ apps/
     prisma/         # Prisma module
     rag/            # Retrieve client, context injector
     health/
+    dev/            # GET /dev/graph mermaid dump
   api/prisma/       # schema, migrations (chat_agent)
   web/
     app/            # Next.js test UI

@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ChatHistoryModule } from './chat-history/chat-history.module';
 import { ChatModule } from './chat/chat.module';
 import { RequestLoggingMiddleware } from './common/request-logging.middleware';
+import { DevModule } from './dev/dev.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -13,6 +14,7 @@ import { PrismaModule } from './prisma/prisma.module';
     HealthModule,
     ChatHistoryModule,
     ChatModule,
+    DevModule,
   ],
 })
 export class AppModule implements NestModule {

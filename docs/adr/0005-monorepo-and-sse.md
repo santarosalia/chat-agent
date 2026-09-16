@@ -16,7 +16,7 @@ pnpm workspace로 재구성합니다.
 
 | 경로 | 역할 |
 |------|------|
-| `apps/api` | Nest chat-agent (`POST /chat`, `POST /chat/stream`, `GET`/`DELETE /sessions/:id`, `GET /health`) — **기본 포트 3000** |
+| `apps/api` | Nest chat-agent (`POST /chat`, `POST /chat/stream`, `GET`/`DELETE /sessions/:id`, `GET /health`, 개발용 `GET /dev/graph`) — **기본 포트 3000** |
 | `apps/web` | Next.js **테스트 전용** 채팅 UI (로그인 없음; 기록은 API `session_id`로) — **기본 포트 3001** |
 | `docs/adr` | 설계 결정 (한국어 본문 유지) |
 

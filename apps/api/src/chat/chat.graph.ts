@@ -220,3 +220,10 @@ export function createChatGraph(deps: ChatGraphDeps) {
     .addEdge("answer", END)
     .compile();
 }
+
+export async function dumpChatGraphMermaid(
+  graph: ReturnType<typeof createChatGraph>
+): Promise<string> {
+  const drawable = await graph.getGraphAsync();
+  return drawable.drawMermaid();
+}
