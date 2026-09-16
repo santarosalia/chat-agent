@@ -21,7 +21,7 @@
 - **retrieve 상한 3회.** `top_k`는 1회 5, 2회 10, 3회 20. 요청 `top_k`는 이 스케줄을 바꾸지 않는다.
 - **1회 query**는 마지막 user 원문. **이후 query**는 직전 `missing`을 공백으로 이은 문자열. `missing`이 비면 마지막 user로 다시 검색한다.
 - **citations**는 라운드 결과를 누적(중복 제거)한다. 충분하면 루프를 끊고 답변 LLM은 `[Retrieved context]`만 근거로 답한다. 도구 호출은 없다.
-- **그래프:** `load_history → prepare` 하나. retrieve-evaluate와 답변은 그래프 밖에서 돈다. SSE가 제품 경로(`meta` 후 `stream()`). JSON `POST /chat`은 같은 prepare 뒤 답변만 `invoke`한다.
+- **그래프:** `load_history → prepare → llm` 하나. llm 노드가 retrieve-evaluate 후 답한다. SSE는 같은 `invoke`에 콜백을 넘겨 `meta` 후 `stream()`. JSON `POST /chat`은 같은 그래프 `invoke`다.
 
 ## Consequences
 

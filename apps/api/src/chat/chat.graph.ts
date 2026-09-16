@@ -6,10 +6,24 @@ import {
   SystemMessage,
 } from "@langchain/core/messages";
 import { END, START, StateGraph, Annotation } from "@langchain/langgraph";
+import { ChatOpenAI } from "@langchain/openai";
 import { ChatHistoryService } from "../chat-history/chat-history.service";
+import { RagRetrieveClient } from "../rag/rag-retrieve.client";
+import { RagRetrieveResult } from "../rag/rag.types";
 import { truncateMessagesForLlm } from "./context-truncate";
 import { ChatMessageDto, ChatRole } from "./dto/chat-message.dto";
 import { withAnswerSystemPrompt } from "./answer-system-prompt";
+import {
+  runAnswerWithRetrieveTool,
+  streamAnswerWithRetrieveTool,
+} from "./answer-with-retrieve-tool";
+import { RetrieveSufficiencyEvaluatorPort } from "./retrieve-evaluate-loop";
+
+const emptyRetrieval = (): RagRetrieveResult => ({
+  ragUsed: false,
+  citations: [],
+  contextBlock: null,
+});
 
 const ChatState = Annotation.Root({
   requestMessages: Annotation<ChatMessageDto[]>({
@@ -32,16 +46,32 @@ const ChatState = Annotation.Root({
     reducer: (_, next) => next,
     default: () => [],
   }),
+  retrieval: Annotation<RagRetrieveResult>({
+    reducer: (_, next) => next,
+    default: () => emptyRetrieval(),
+  }),
   truncatedMessages: Annotation<ChatMessageDto[]>({
     reducer: (_, next) => next,
     default: () => [],
+  }),
+  response: Annotation<string | undefined>({
+    reducer: (_, next) => next,
+    default: () => undefined,
   }),
 });
 
 export type ChatGraphState = typeof ChatState.State;
 
 export interface ChatGraphDeps {
+  model: ChatOpenAI;
+  ragClient: RagRetrieveClient;
   chatHistory: Pick<ChatHistoryService, "listActiveMessages">;
+  evaluator: RetrieveSufficiencyEvaluatorPort;
+}
+
+export interface ChatGraphStreamCallbacks {
+  onMeta?: (retrieval: RagRetrieveResult) => void;
+  onDelta?: (content: string) => void;
 }
 
 export function toLangChainMessages(messages: ChatMessageDto[]): BaseMessage[] {
@@ -110,8 +140,39 @@ export function createChatGraph(deps: ChatGraphDeps) {
         withAnswerSystemPrompt(state.conversation)
       ),
     }))
+    .addNode("llm", async (state: ChatGraphState, config) => {
+      const callbacks = config?.configurable as
+        | ChatGraphStreamCallbacks
+        | undefined;
+      const signal = config?.signal as AbortSignal | undefined;
+      const messages = toLangChainMessages(state.truncatedMessages);
+      const result = callbacks?.onDelta
+        ? await streamAnswerWithRetrieveTool({
+            model: deps.model,
+            evaluator: deps.evaluator,
+            ragClient: deps.ragClient,
+            messages,
+            groupId: state.groupId,
+            signal,
+            onMeta: callbacks.onMeta ?? (() => undefined),
+            onDelta: callbacks.onDelta,
+          })
+        : await runAnswerWithRetrieveTool({
+            model: deps.model,
+            evaluator: deps.evaluator,
+            ragClient: deps.ragClient,
+            messages,
+            groupId: state.groupId,
+            signal,
+          });
+      return {
+        response: result.content,
+        retrieval: result.retrieval,
+      };
+    })
     .addEdge(START, "load_history")
     .addEdge("load_history", "prepare")
-    .addEdge("prepare", END)
+    .addEdge("prepare", "llm")
+    .addEdge("llm", END)
     .compile();
 }

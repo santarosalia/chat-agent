@@ -3,7 +3,7 @@
 **Status:** Accepted  
 **Date:** 2026-09-11  
 **Supersedes:** ADR 0005의 “LangGraph는 단일 LLM 노드, v1에서 스트리밍 노드로 확장하지 않음”  
-**Note:** `rewrite → retrieve → inject` 노드는 [ADR 0010](./0010-retrieve-as-answer-tool.md)이 대체했고, 도구 루프는 [ADR 0011](./0011-retrieve-sufficiency-evaluator.md)이 대체. 그래프는 `load_history → prepare`이고 retrieve-evaluate·답변은 그래프 밖에서 돌린다.
+**Note:** `rewrite → retrieve → inject` 노드는 [ADR 0010](./0010-retrieve-as-answer-tool.md)이 대체했고, 도구 루프는 [ADR 0011](./0011-retrieve-sufficiency-evaluator.md)이 대체. 그래프는 `load_history → prepare → llm`이고 llm 노드가 retrieve-evaluate 후 답한다.
 
 ## Context
 
@@ -13,10 +13,10 @@
 
 **LangGraph가 채팅 파이프라인을 소유**합니다.
 
-노드: `load_history → prepare(system+truncate)` ([ADR 0011](./0011-retrieve-sufficiency-evaluator.md)). retrieve-evaluate와 답변 LLM은 그래프 밖에서 돈다. 그래프는 JSON/SSE가 나누지 않는다.
+노드: `load_history → prepare(system+truncate) → llm` ([ADR 0011](./0011-retrieve-sufficiency-evaluator.md)). llm 노드가 retrieve-evaluate 루프 후 답변 LLM을 호출한다. 그래프는 JSON/SSE가 나누지 않는다.
 
-- **`POST /chat/stream`**: 제품 경로. 같은 그래프 `invoke` 후 답변은 `stream()`.
-- **`POST /chat`**: 같은 prepare 뒤 답변만 `invoke`로 모아 JSON을 주는 어댑터다.
+- **`POST /chat/stream`**: 제품 경로. 같은 그래프 `invoke`에 스트림 콜백을 넘기고, 답변은 `stream()`.
+- **`POST /chat`**: 같은 그래프 `invoke`. 답변은 모아 JSON으로 준다.
 - **`ChatService`**: HTTP 어댑터. 409/410 사전 검사, SSE 매핑, abort, 성공 시 append.
 
 ## Consequences

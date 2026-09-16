@@ -9,14 +9,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { ChatHistoryService } from '../chat-history/chat-history.service';
 import { RagRetrieveClient } from '../rag/rag-retrieve.client';
 import { RagRetrieveResult } from '../rag/rag.types';
-import {
-  createChatGraph,
-  toLangChainMessages,
-} from './chat.graph';
-import {
-  runAnswerWithRetrieveTool,
-  streamAnswerWithRetrieveTool,
-} from './answer-with-retrieve-tool';
+import { createChatGraph } from './chat.graph';
 import { RetrieveSufficiencyEvaluator } from './retrieve-sufficiency-evaluator.service';
 import { ChatRequestDto } from './dto/chat-request.dto';
 import { ChatResponseDto } from './dto/chat-response.dto';
@@ -47,25 +40,21 @@ export class ChatService {
       model: this.config.get<string>('VLLM_MODEL') ?? 'gpt-4o-mini',
     });
     this.graph = createChatGraph({
+      model: this.model,
+      ragClient: this.ragClient,
       chatHistory: this.chatHistory,
+      evaluator: this.evaluator,
     });
   }
 
   async chat(request: ChatRequestDto): Promise<ChatResponseDto> {
     const historyEnabled = await this.ensureHistoryAllowed(request);
-    const prepared = await this.graph.invoke(
+    const result = await this.graph.invoke(
       toChatGraphInput(request, historyEnabled),
     );
-    const answered = await runAnswerWithRetrieveTool({
-      model: this.model,
-      evaluator: this.evaluator,
-      ragClient: this.ragClient,
-      messages: toLangChainMessages(prepared.truncatedMessages),
-      groupId: request.group_id,
-    });
     const response = this.buildResponse(
-      answered.retrieval,
-      answered.content,
+      result.retrieval,
+      result.response ?? '',
     );
     await this.persistTurnIfRequested(request, response, historyEnabled);
     return response;
@@ -79,33 +68,25 @@ export class ChatService {
     let historyEnabled = false;
     try {
       historyEnabled = await this.ensureHistoryAllowed(request);
-      const prepared = await this.graph.invoke(
+      const result = await this.graph.invoke(
         toChatGraphInput(request, historyEnabled),
-        { signal },
+        {
+          signal,
+          configurable: {
+            onMeta: (retrieval: RagRetrieveResult) => {
+              write(formatSseEvent('meta', this.buildMetaPayload(retrieval)));
+            },
+            onDelta: (content: string) => {
+              write(formatSseEvent('delta', { content }));
+            },
+          },
+        },
       );
       if (signal?.aborted) {
         return;
       }
 
-      const answered = await streamAnswerWithRetrieveTool({
-        model: this.model,
-        evaluator: this.evaluator,
-        ragClient: this.ragClient,
-        messages: toLangChainMessages(prepared.truncatedMessages),
-        groupId: request.group_id,
-        signal,
-        onMeta: (retrieval) => {
-          write(formatSseEvent('meta', this.buildMetaPayload(retrieval)));
-        },
-        onDelta: (content) => {
-          write(formatSseEvent('delta', { content }));
-        },
-      });
-      if (signal?.aborted) {
-        return;
-      }
-
-      const fullContent = answered.content;
+      const fullContent = result.response ?? '';
 
       write(
         formatSseEvent('done', {
@@ -117,9 +98,9 @@ export class ChatService {
         request,
         {
           message: { role: 'assistant', content: fullContent },
-          rag_used: answered.retrieval.ragUsed,
-          citations: answered.retrieval.ragUsed
-            ? answered.retrieval.citations
+          rag_used: result.retrieval.ragUsed,
+          citations: result.retrieval.ragUsed
+            ? result.retrieval.citations
             : undefined,
         },
         historyEnabled,

@@ -26,7 +26,7 @@ pnpm workspace로 재구성합니다.
 
 - **`POST /chat`**: 기존과 동일한 **비스트리밍 JSON** 계약 (`message`, `rag_used`, 선택적 `citations`). **변경 없음.**
 - **`POST /chat/stream`**: `Content-Type: text/event-stream`. 요청 본문은 `/chat`과 동일(`ChatRequestDto`).
-- 두 엔드포인트 모두 **동일 파이프라인**: LangGraph 노드 `load_history → prepare` ([ADR 0009](./0009-langgraph-pipeline.md)). 그다음 retrieve-evaluate 후 답변 LLM이 답합니다 ([ADR 0011](./0011-retrieve-sufficiency-evaluator.md)). HTTP 계층은 세션 409/410 검사·SSE·append만 담당합니다. 세션 로드는 [ADR 0007](./0007-server-owned-session-context.md).
+- 두 엔드포인트 모두 **동일 파이프라인**: LangGraph 노드 `load_history → prepare → llm` ([ADR 0009](./0009-langgraph-pipeline.md)). llm 노드가 retrieve-evaluate 후 답합니다 ([ADR 0011](./0011-retrieve-sufficiency-evaluator.md)). HTTP 계층은 세션 409/410 검사·SSE·append만 담당합니다. 세션 로드는 [ADR 0007](./0007-server-owned-session-context.md).
 
 ### SSE 이벤트 순서 및 스키마
 
@@ -67,8 +67,8 @@ data: {"message":"LLM request failed"}
 
 ### LLM 스트리밍 정직성
 
-- 그래프는 `load_history → prepare` 한 개다. retrieve-evaluate 루프 후 `meta`는 citations가 정해진 뒤 1회다 ([ADR 0011](./0011-retrieve-sufficiency-evaluator.md)).
-- 답변 턴은 LangChain `ChatOpenAI.stream()`으로 `delta`를 보낸다. 스트림이 비거나 실패하고 아직 `delta`가 없으면 `invoke` 결과를 고정 크기 청크로 폴백한다.
+- 그래프는 `load_history → prepare → llm` 한 개다. llm 노드가 retrieve-evaluate 후 `meta`는 citations가 정해진 뒤 1회다 ([ADR 0011](./0011-retrieve-sufficiency-evaluator.md)).
+- SSE는 같은 그래프 `invoke`에 `onDelta`를 넘긴다. 답변 턴은 LangChain `ChatOpenAI.stream()`으로 `delta`를 보낸다. 스트림이 비거나 실패하고 아직 `delta`가 없으면 `invoke` 결과를 고정 크기 청크로 폴백한다.
 - 평가기·retrieve 라운드 토큰은 클라이언트로 보내지 않는다. `meta` 전에 실패하면 `error`로 끝난다.
 
 ### 클라이언트 연결 해제
